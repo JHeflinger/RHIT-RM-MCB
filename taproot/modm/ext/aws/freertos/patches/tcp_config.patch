@@ -1,0 +1,51 @@
+diff --git a/FreeRTOS-Plus-TCP/include/FreeRTOSIPConfigDefaults.h b/FreeRTOS-Plus-TCP/include/FreeRTOSIPConfigDefaults.h
+index bbbab54..317696d 100644
+--- a/FreeRTOS-Plus-TCP/include/FreeRTOSIPConfigDefaults.h
++++ b/FreeRTOS-Plus-TCP/include/FreeRTOSIPConfigDefaults.h
+@@ -94,14 +94,6 @@
+     #error now called: FreeRTOS_debug_printf
+ #endif
+
+-#if ( ipconfigEVENT_QUEUE_LENGTH < ( ipconfigNUM_NETWORK_BUFFER_DESCRIPTORS + 5 ) )
+-    #error The ipconfigEVENT_QUEUE_LENGTH parameter must be at least ipconfigNUM_NETWORK_BUFFER_DESCRIPTORS + 5
+-#endif
+-
+-#if ( ipconfigNETWORK_MTU < 46 )
+-    #error ipconfigNETWORK_MTU must be at least 46.
+-#endif
+-
+ #ifdef  ipconfigBUFFER_ALLOC_FIXED_SIZE
+     #error ipconfigBUFFER_ALLOC_FIXED_SIZE was dropped and replaced by a const value, declared in BufferAllocation[12].c
+ #endif
+@@ -321,6 +313,10 @@
+     #define ipconfigEVENT_QUEUE_LENGTH    ( ipconfigNUM_NETWORK_BUFFER_DESCRIPTORS + 5 )
+ #endif
+
++#if ( ipconfigEVENT_QUEUE_LENGTH < ( ipconfigNUM_NETWORK_BUFFER_DESCRIPTORS + 5 ) )
++    #error The ipconfigEVENT_QUEUE_LENGTH parameter must be at least ipconfigNUM_NETWORK_BUFFER_DESCRIPTORS + 5
++#endif
++
+ #ifndef ipconfigALLOW_SOCKET_SEND_WITHOUT_BIND
+     #define ipconfigALLOW_SOCKET_SEND_WITHOUT_BIND    1
+ #endif
+@@ -395,6 +391,10 @@
+     #define ipconfigNETWORK_MTU    1500
+ #endif
+
++#if ( ipconfigNETWORK_MTU < 46 )
++    #error ipconfigNETWORK_MTU must be at least 46.
++#endif
++
+ #ifndef ipconfigTCP_MSS
+     #define ipconfigTCP_MSS    ( ipconfigNETWORK_MTU - ( ipSIZE_OF_IPv4_HEADER + ipSIZE_OF_TCP_HEADER ) )
+ #endif
+@@ -420,7 +420,7 @@
+     #endif /* _WINDOWS_ */
+ #endif /* ipconfigMAXIMUM_DISCOVER_TX_PERIOD */
+
+-#if ( ipconfigUSE_DNS == 0 )
++#if defined(ipconfigUSE_DNS) && ( ipconfigUSE_DNS == 0 )
+     /* The DNS module will not be included. */
+     #if ( ( ipconfigUSE_LLMNR != 0 ) || ( ipconfigUSE_NBNS != 0 ) )
+         /* LLMNR and NBNS depend on DNS because those protocols share a lot of code. */
+

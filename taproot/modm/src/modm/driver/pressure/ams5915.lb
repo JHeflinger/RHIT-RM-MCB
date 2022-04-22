@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2018, Niklas Hauser
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+
+def init(module):
+    module.name = ":driver:ams5915"
+    module.description = """\
+# AMS 5915 Pressure Sensor
+
+Driver for the AMS 5915 differential and absolute pressure sensors.
+The device runs a cyclic program, which will store a corrected pressure value with
+12 bit resolution about every 500 μs within the output registers of the internal ASIC.
+
+[Datasheet](https://www.analog-micro.com/_pages/sens/ams5915/ams5915_data_sheet.pdf)
+"""
+
+def prepare(module, options):
+    module.depends(
+        ":architecture:i2c.device",
+        ":math:utils")
+    return True
+
+def build(env):
+    env.outbasepath = "modm/src/modm/driver/pressure"
+    env.copy("ams5915.hpp")

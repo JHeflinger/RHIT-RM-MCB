@@ -1,0 +1,204 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xsd:schema xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+
+<!-- <xsd:import namespace="http://www.w3.org/XML/1998/namespace"
+            schemaLocation="http://www.w3.org/2001/xml.xsd" /> -->
+
+<xsd:element name="modm" type="RootType">
+</xsd:element>
+
+<xsd:complexType name="RootType">
+  <xsd:sequence>
+    <xsd:element name="device" type="DeviceType" minOccurs="1" />
+  </xsd:sequence>
+  <xsd:attribute name="version" type="xsd:string" />
+</xsd:complexType>
+
+<xsd:simpleType name="HexadecimalType">
+  <xsd:union memberTypes="xsd:unsignedLong">
+    <xsd:simpleType>
+      <xsd:restriction base="xsd:string">
+        <xsd:pattern value="0x[0-9A-Fa-f]{1,8}"/>
+      </xsd:restriction>
+    </xsd:simpleType>
+  </xsd:union>
+</xsd:simpleType>
+
+<xsd:complexType name="AttributeBaseType">
+  <xsd:attribute name="device-platform" type="xsd:string" use="optional" />
+  <xsd:attribute name="device-family" type="xsd:string" use="optional" />
+  <xsd:attribute name="device-name" type="xsd:string" use="optional" />
+  <xsd:attribute name="device-type" type="xsd:string" use="optional" />
+  <xsd:attribute name="device-pin" type="xsd:string" use="optional" />
+  <xsd:attribute name="device-size" type="xsd:string" use="optional" />
+  <xsd:attribute name="device-package" type="xsd:string" use="optional" />
+  <xsd:attribute name="value" type="xsd:string" use="optional" />
+</xsd:complexType>
+
+<xsd:complexType name="AttributeBaseStringType">
+  <xsd:simpleContent>
+    <xsd:extension base="xsd:string">
+      <xsd:attribute name="device-platform" type="xsd:string" use="optional" />
+      <xsd:attribute name="device-family" type="xsd:string" use="optional" />
+      <xsd:attribute name="device-name" type="xsd:string" use="optional" />
+      <xsd:attribute name="device-type" type="xsd:string" use="optional" />
+      <xsd:attribute name="device-pin" type="xsd:string" use="optional" />
+      <xsd:attribute name="device-size" type="xsd:string" use="optional" />
+      <xsd:attribute name="device-package" type="xsd:string" use="optional" />
+      <xsd:attribute name="value" type="xsd:string" use="optional" />
+    </xsd:extension>
+  </xsd:simpleContent>
+</xsd:complexType>
+
+<xsd:complexType name="DeviceType">
+  <xsd:sequence>
+    <xsd:element name="naming-schema" type="xsd:string" minOccurs="1" maxOccurs="1">
+      <xsd:annotation>
+        <xsd:documentation>
+          Defines a naming schema for the devices. The string can contain fixed
+          characters or device attributes enclosed in double curly braces.
+
+          E.g. 'at{{ family }}{{ name }}{{ type }}{{ pin_id }}' or
+          {{ platform }}f{{ name }}{{ pin_id }}{{ size_id }}.
+
+          The device names are constructed by providing all combinations of
+          the used device attributes to the naming schema string. Device names
+          which can be constructed this way but do not exist as a real device
+          must be excluded with the 'invalid-device' tag.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:element>
+    <xsd:element name="invalid-device" type="xsd:string" minOccurs="0" maxOccurs="unbounded">
+      <xsd:annotation>
+        <xsd:documentation>
+          Not all combinations which can be generated through the
+          naming schema are valid. This tag can be used to exclude certain
+          device names.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:element>
+    <xsd:element name="valid-device" type="xsd:string" minOccurs="0" maxOccurs="unbounded">
+      <xsd:annotation>
+        <xsd:documentation>
+          Not all combinations which can be generated through the
+          naming schema are valid. This tag can be used to include certain
+          device names.
+        </xsd:documentation>
+      </xsd:annotation>
+    </xsd:element>
+
+    <xsd:choice maxOccurs="unbounded">
+      <xsd:element name="attribute-flash" type="AttributeBaseStringType" minOccurs="1" maxOccurs="unbounded" />
+      <xsd:element name="attribute-ram" type="AttributeBaseStringType" minOccurs="1" maxOccurs="unbounded" />
+      <xsd:element name="attribute-eeprom" type="AttributeBaseStringType" minOccurs="0" maxOccurs="unbounded" />
+      <xsd:element name="attribute-mcu" type="AttributeBaseStringType" minOccurs="0" maxOccurs="unbounded" />
+      <xsd:element name="attribute-core" type="AttributeBaseStringType" minOccurs="1" maxOccurs="unbounded" />
+      <xsd:element name="header" type="AttributeBaseStringType" minOccurs="0" maxOccurs="unbounded" />
+      <xsd:element name="attribute-define" type="AttributeBaseStringType" minOccurs="0" maxOccurs="unbounded" />
+      <xsd:element name="driver" type="DriverType" minOccurs="1" maxOccurs="unbounded" />
+    </xsd:choice>
+  </xsd:sequence>
+
+  <xsd:attribute name="platform" type="xsd:string" use="required" />
+  <xsd:attribute name="family" type="xsd:string" use="required" />
+  <xsd:attribute name="name" type="xsd:string" use="optional" />
+  <xsd:attribute name="type" type="xsd:string" use="optional" />
+  <xsd:attribute name="pin" type="xsd:string" use="optional" />
+  <xsd:attribute name="size" type="xsd:string" use="optional" />
+  <xsd:attribute name="package" type="xsd:string" use="optional" />
+</xsd:complexType>
+
+<xsd:complexType name="DriverType">
+  <xsd:complexContent>
+    <xsd:extension base="AttributeBaseType">
+      <xsd:choice maxOccurs="unbounded">
+        <xsd:element name="gpio" type="GpioType" minOccurs="0" maxOccurs="unbounded"></xsd:element>
+        <xsd:element name="parameter" type="ParameterType" minOccurs="0" maxOccurs="unbounded"></xsd:element>
+        <xsd:element name="memory" type="MemoryType" minOccurs="0" maxOccurs="unbounded"></xsd:element>
+        <xsd:element name="vector" type="VectorType" minOccurs="0" maxOccurs="unbounded"></xsd:element>
+        <xsd:element name="instance" type="AttributeBaseStringType" minOccurs="0" maxOccurs="unbounded"></xsd:element>
+      </xsd:choice>
+
+      <xsd:attribute name="type" type="xsd:string" use="required" />
+      <xsd:attribute name="compatible" type="xsd:string" use="required" />
+    </xsd:extension>
+  </xsd:complexContent>
+</xsd:complexType>
+
+<xsd:complexType name="GpioType">
+  <xsd:complexContent>
+    <xsd:extension base="AttributeBaseType">
+      <xsd:sequence>
+        <xsd:element name="af" type="AlternateFunctionType" minOccurs="0" maxOccurs="unbounded" />
+      </xsd:sequence>
+
+      <xsd:attribute name="port" type="xsd:string" use="required" />
+      <xsd:attribute name="id" type="xsd:string" use="required" />
+
+      <xsd:attribute name="pcint" type="xsd:string" use="optional" />
+      <xsd:attribute name="extint" type="xsd:string" use="optional" />
+      <xsd:attribute name="func" type="xsd:string" use="optional" />
+      <xsd:attribute name="bits" type="xsd:string" use="optional" />
+      <xsd:attribute name="define" type="xsd:string" use="optional" />
+    </xsd:extension>
+  </xsd:complexContent>
+</xsd:complexType>
+
+<xsd:complexType name="AlternateFunctionType">
+  <xsd:complexContent>
+    <xsd:extension base="AttributeBaseType">
+      <xsd:attribute name="peripheral" type="xsd:string" use="required" />
+      <xsd:attribute name="type" type="AlternateFunctionInputOutputType" use="optional" />
+      <xsd:attribute name="name" type="xsd:string" use="optional" />
+      <xsd:attribute name="id" type="xsd:string" use="optional" />
+      <xsd:attribute name="remap" type="xsd:string" use="optional" />
+    </xsd:extension>
+  </xsd:complexContent>
+</xsd:complexType>
+
+<xsd:simpleType name="AlternateFunctionInputOutputType">
+  <xsd:restriction base="xsd:string">
+    <xsd:enumeration value="in" />
+    <xsd:enumeration value="out" />
+    <xsd:enumeration value="io" />
+    <xsd:enumeration value="analog" />
+  </xsd:restriction>
+</xsd:simpleType>
+
+<xsd:complexType name="ParameterType">
+  <xsd:simpleContent>
+    <xsd:extension base="AttributeBaseStringType">
+      <xsd:attribute name="name" type="xsd:string" />
+    </xsd:extension>
+  </xsd:simpleContent>
+</xsd:complexType>
+
+<xsd:complexType name="MemoryType">
+ <xsd:complexContent>
+    <xsd:extension base="AttributeBaseType">
+      <xsd:attribute name="access">
+        <xsd:simpleType>
+          <xsd:restriction base="xsd:string">
+            <xsd:enumeration value="rx" />
+            <xsd:enumeration value="rwx" />
+            <xsd:enumeration value="rw" />
+          </xsd:restriction>
+        </xsd:simpleType>
+      </xsd:attribute>
+      <xsd:attribute name="start" type="HexadecimalType" use="required" />
+      <xsd:attribute name="name" type="xsd:string" use="required" />
+      <xsd:attribute name="size" type="xsd:integer" use="required" />
+    </xsd:extension>
+  </xsd:complexContent>
+</xsd:complexType>
+
+<xsd:complexType name="VectorType">
+ <xsd:complexContent>
+    <xsd:extension base="AttributeBaseType">
+      <xsd:attribute name="position" type="xsd:string" use="required" />
+      <xsd:attribute name="name" type="xsd:string" use="required" />
+    </xsd:extension>
+  </xsd:complexContent>
+</xsd:complexType>
+
+</xsd:schema>

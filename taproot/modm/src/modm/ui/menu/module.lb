@@ -1,0 +1,49 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2018, Niklas Hauser
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+def init(module):
+    module.name = ":ui:menu"
+    module.description = """\
+# Display Menu
+
+Simple to use classes for implementing menu structures on graphic displays.
+
+Some convenience classes for implementing menus. The menus are
+using a stack to allow stepping forward and backwards through the
+screens.
+
+The menus are based on the usage of five buttons. Inside most of the
+screens these buttons have the following functions:
+
+- Left: Go back one screen.
+- Right: Go to next screen.
+- Up: Go to previous selected entry on screen
+- Down: Go to next entry on screen
+- OK: Edit selected entry
+
+!!! warning
+    Some classes currently only work with the font `modm::font::FixedWidth5x8`!
+"""
+
+def prepare(module, options):
+    module.depends(
+        ":communication:xpcc",
+        ":container",
+        ":processing:timer",
+        ":ui:display",
+        ":utils")
+    return True
+
+def build(env):
+    env.outbasepath = "modm/src/modm/ui/menu"
+    env.copy(".")
+    env.copy("../menu.hpp")

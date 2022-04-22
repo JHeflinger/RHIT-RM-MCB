@@ -1,0 +1,23 @@
+diff --git a/FreeRTOS-Plus-TCP/FreeRTOS_IP.c b/FreeRTOS-Plus-TCP/FreeRTOS_IP.c
+index bfd2a9c..112e879 100644
+--- a/FreeRTOS-Plus-TCP/FreeRTOS_IP.c
++++ b/FreeRTOS-Plus-TCP/FreeRTOS_IP.c
+@@ -27,6 +27,7 @@
+ #include <stdint.h>
+ #include <stdio.h>
+ #include <string.h>
++#include <inttypes.h>
+
+ /* FreeRTOS includes. */
+ #include "FreeRTOS.h"
+--- a/FreeRTOS-Plus-TCP/FreeRTOS_IP.c
++++ b/FreeRTOS-Plus-TCP/FreeRTOS_IP.c
+@@ -3392,7 +3392,7 @@ const char *pcName;
+
+ 		default:
+ 			/* Using function "snprintf". */
+-			( void ) snprintf( pcBuffer, uxLength, "Errno %d", ( int32_t ) xErrnum );
++			( void ) snprintf( pcBuffer, uxLength, "Errno %" PRId32, ( int32_t ) xErrnum );
+ 			pcName = NULL;
+ 			break;
+ 	}

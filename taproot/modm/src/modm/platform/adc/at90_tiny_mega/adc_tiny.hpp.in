@@ -1,0 +1,401 @@
+/*
+ * Copyright (c) 2015-2017, Niklas Hauser
+ * Copyright (c) 2017, Fabian Greif
+ *
+ * This file is part of the modm project.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+// ----------------------------------------------------------------------------
+
+#ifndef MODM_ATTINY_ADC_HPP
+#define MODM_ATTINY_ADC_HPP
+
+#include <avr/io.h>
+
+#include <modm/architecture/interface/adc.hpp>
+#include <modm/platform/gpio/connector.hpp>
+#include <modm/math/algorithm/prescaler.hpp>
+
+{#- The ATtiny ADC module is also fragmented, these defines help a tiny bit -#}
+
+// For ATtiny5, ATtiny10
+#if not defined(ADC) and defined (ADCL)
+#	define ADC ADCL
+#endif
+
+// For ATtiny26
+#if not defined(ADCSRA) and defined (ADCSR)
+#	define ADCSRA ADCSR
+#endif
+
+// For ATtiny20, ATtiny40, ATtiny43, ATtiny828
+#if not defined(REFS0) and defined (REFS)
+#	define REFS0 REFS
+#endif
+
+%% if target["name"] in ['5', '10', '24', '44', '84']
+	%% set has_ref = False
+%% else
+	%% set has_ref = True
+%% endif
+
+%% if target["name"] in ['20', '40', '828', '1634', '24', '44', '84', '441', '841']
+	%% set adlar_reg = 'ADCSRB'
+%% else
+	%% set adlar_reg = 'ADMUX'
+%% endif
+
+%% if target["name"] in ['828', '441', '841']
+	%% set admuxb = 'ADMUXB'
+	%% set admuxa = 'ADMUXA'
+%% else
+	%% set admuxb = 'ADCSRB'
+	%% set admuxa = 'ADMUX'
+%% endif
+
+%% if target["name"] in ['261', '461', '861', '828', '441', '841']
+	%% set channels = 2**6
+	%% set mux_mask = '0b00011111'
+%% elif target["name"] in ['26', '87', '167']
+	%% set channels = 2**5
+	%% set mux_mask = '0b00011111'
+%% elif target["name"] in ['43']
+	%% set channels = 2**3
+	%% set mux_mask = '0b00000111'
+%% elif target["name"] in ['5', '10', '13']
+	%% set channels = 2**2
+	%% set mux_mask = '0b00000011'
+%% else
+	%% set channels = 2**4
+	%% set mux_mask = '0b00001111'
+%% endif
+
+%% set resolution = 8 if target["name"] in ['5', '10'] else 10
+
+namespace modm
+{
+
+namespace platform
+{
+
+/**
+ * Generic Analog/Digital-Converter module
+ *
+ * This class aims at providing a common interface to all the different
+ * register layouts of the ADC modules in most ATtinys.
+ * It takes into consideration restrictions and extensions in ADC
+ * functionality and provides the appropriate methods to configure them.
+ *
+ * This class enables you to address and use a broader array of ATtinys
+ * with similar ADC functionality without changing a single line of code.
+ *
+ * For best use of this class, check your device's datasheet for the
+ * supported functionality.
+ *
+ * ADC clock frequency should be between 50 and 200 kHz for maximum
+ * resolution.
+ * If less than the full resolution of {{ resolution }} bits are
+ * needed the frequency can be higher.
+ *
+ * @author	Niklas Hauser
+ * @ingroup	modm_platform_adc
+ */
+class Adc : public modm::Adc
+{
+public:
+	typedef uint8_t Channel;
+	static constexpr uint8_t Resolution = {{ resolution }};
+
+%% if has_ref
+	enum class
+	Reference : uint8_t
+	{
+	%% if target["name"] in ['87', '167']
+		InternalVcc = 0,
+		ExternalRef = (1 << AREFEN),
+		Internal1V1 = (1 << REFS0),
+		Internal2V56 = (1 << REFS1) | (1 << REFS0),
+	%% elif target["name"] in ['261', '461', '861', '25', '45', '85']
+		InternalVcc = 0,
+		ExternalRef = (1 << REFS0),
+		Internal1V1 = (1 << REFS1),
+		Internal2V56 = (1 << REFS2) | (1 << REFS1),
+		Internal2V56WithCap = (1 << REFS2) | (1 << REFS1) | (1 << REFS0),
+	%% elif target["name"] in ['13', '20', '40', '43', '828']
+		InternalVcc = 0,
+		Internal1V1 = (1 << REFS0),
+	%% elif target["name"] in ['48', '88']
+		InternalVcc = (1 << REFS0),
+		Internal1V1 = 0,
+	%% elif target["name"] in ['1634']
+		InternalVcc = 0,
+		ExternalRef = (1 << REFS0),
+		Internal1V1 = (1 << REFS1),
+	%% elif target["name"] in ['26']
+		InternalVcc = 0,
+		ExternalRef = (1 << REFS0),
+		Internal2V56 = (1 << REFS1),
+		Internal2V56WithCap = (1 << REFS1) | (1 << REFS0),
+	%% endif
+	};
+%% endif
+
+private:
+	enum class
+	Prescaler : uint8_t
+	{
+		Div2 = 0x01,
+		Div4 = 0x02,
+		Div8 = 0x03,
+		Div16 = 0x04,
+		Div32 = 0x05,
+		Div64 = 0x06,
+		Div128 = 0x07,
+	};
+
+public:
+	// start inherited documentation
+	template< template<Peripheral _> class... Signals >
+	static void
+	connect()
+	{
+		using Connector = GpioConnector<Peripheral::Adc, Signals...>;
+		Connector::connect();
+	}
+
+	template< class SystemClock, frequency_t frequency=kHz(100), percent_t tolerance=pct(10) >
+	static void
+	initialize()
+	{
+		constexpr auto result = modm::Prescaler::from_power(SystemClock::Adc, frequency, 2, 128);
+		assertBaudrateInTolerance< result.frequency, frequency, tolerance >();
+
+		disable();
+		setPrescaler(Prescaler{result.index});
+		// enable the module
+		ADCSRA |= (1<<ADEN);
+	}
+
+	static inline void
+	disable()
+	{
+		ADCSRA &= ~(1<<ADEN);
+	}
+
+
+	static inline void
+	startConversion()
+	{
+		acknowledgeInterruptFlag();
+		ADCSRA |= (1<<ADSC);
+	}
+
+	static inline bool
+	isConversionFinished()
+	{
+		return getInterruptFlag();
+	}
+
+	static inline uint16_t
+	getValue()
+	{
+		return ADC;
+	}
+
+
+	/**
+	 * Read the value an analog channel
+	 *
+	 * A normal conversion takes 13 ADC clock cycles. With a clock frequency
+	 * of for example 200 kHz a conversion therefore needs 65 microseconds.
+	 * This time increases with a lower frequency.
+	 */
+	static inline uint16_t
+	readChannel(Channel channel)
+	{
+		if (!setChannel(channel)) return 0;
+
+		startConversion();
+		// wait until the conversion is finished
+		while (!isConversionFinished())
+			;
+
+		return getValue();
+	}
+
+
+	static inline bool
+	setChannel(Channel channel)
+	{
+		if (channel > {{ channels - 1}}) return false;
+%% if mux5
+		{{ admuxb }} = ({{ admuxb }} & ~(1<<MUX5)) | ((channel & 0x20) ? (1<<MUX5) : 0);
+		channel &= 0x1f;
+%% endif
+		{{ admuxa }} = ({{ admuxa }} & ~{{ mux_mask }}) | channel;
+		return true;
+	}
+
+	static inline uint8_t
+	getChannel()
+	{
+%% if mux5
+		return ({{ admuxb }} & {{ mux_mask }}) | (({{ admuxb }} & (1<<MUX5)) ? 0x20 : 0);
+%% else
+		return ({{ admuxa }} & {{ mux_mask }});
+%% endif
+	}
+
+
+	static inline void
+	enableFreeRunningMode()
+	{
+%% if adfr
+		ADCSRA |= (1<<ADFR);
+%% else
+		enableAutoTrigger();
+		setAutoTriggerSource(0);
+%% endif
+	}
+
+	static inline void
+	diableFreeRunningMode()
+	{
+%% if adfr
+		ADCSRA |= (1<<ADFR);
+%% else
+		disableAutoTrigger();
+%% endif
+	}
+
+	static inline void
+	setLeftAdjustResult()
+	{
+%% if target["name"] not in ['5', '10']
+		{{ adlar_reg }} |= (1 << ADLAR);
+%% endif
+	}
+
+	static inline void
+	setRightAdjustResult()
+	{
+%% if target["name"] not in ['5', '10']
+		{{ adlar_reg }} &= ~(1 << ADLAR);
+%% endif
+	}
+	// stop inherited documentation
+
+
+%% if has_ref
+	/**
+	 * Voltage reference for the ADC
+	 *
+	 * The internal voltage reference options may not be used if an
+	 * external reference voltage is being applied to the AREF pin.
+	 */
+	static inline void
+	setReference(Reference reference)
+	{
+	%% if target["name"] in ['87', '167']
+		AMISCR = (AMISCR & ~(1 << AREFEN)) | (uint8_t(reference) & (1 << AREFEN));
+		ADMUX = (ADMUX & ~0xc0) | (uint8_t(reference) & 0xc0);
+	%% elif target["name"] in ['828', '241', '441', '841']
+		ADMUXB = (ADMUXB & ~0x20) | uint8_t(reference);
+	%% elif target["name"] in ['261', '461', '861']
+		ADCSRB = (ADCSRB & ~(1 << REFS2)) | (uint8_t(reference) & (1 << REFS2));
+		ADMUX = (ADMUX & ~0xc0) | (uint8_t(reference) & 0xc0);
+	%% elif target["name"] in ['25', '45', '85']
+		ADMUX = (ADMUX & ~0xd0) | uint8_t(reference);
+	%% else
+		ADMUX = (ADMUX & ~0xc0) | uint8_t(reference);
+	%% endif
+	}
+%% endif
+
+
+	/// Enables the ADC Conversion Complete Interrupt
+	static inline void
+	enableInterrupt()
+	{
+		ADCSRA |= (1<<ADIE);
+	}
+
+	/// Disables the ADC Conversion Complete Interrupt
+	static inline void
+	disableInterrupt()
+	{
+		ADCSRA &= ~(1<<ADIE);
+	}
+
+
+	/// @return	`true` if the conversion complete flag is set,
+	///			`false` otherwise
+	static inline bool
+	getInterruptFlag()
+	{
+		return (ADCSRA & (1<<ADIF));
+	}
+
+	/// Clears the interrupt flag
+	static inline void
+	acknowledgeInterruptFlag()
+	{
+		ADCSRA &= ~(1<<ADIF);
+	}
+
+
+%% if not adfr
+	/**
+	 * Enable auto triggering of the ADC
+	 *
+	 * The ADC will start a conversion on a positive edge of the
+	 * selected trigger signal.
+	 * @see setAutoTriggerSource
+	 */
+	static inline void
+	enableAutoTrigger()
+	{
+		ADCSRA |= (1<<ADATE);
+	}
+
+	/// disable auto triggering of the ADC
+	static inline void
+	disableAutoTrigger()
+	{
+		ADCSRA &= ~(1<<ADATE);
+	}
+
+	/**
+	 * Selects which source will trigger an ADC conversion
+	 *
+	 * A conversion will be triggered by the rising edge of the
+	 * selected Interrupt Flag. Note that switching from a trigger
+	 * source that is cleared to a trigger source that is set, will
+	 * generate a positive edge on the trigger signal.
+	 * Set to 0 to enable Free Running Mode.
+	 */
+	static inline void
+	setAutoTriggerSource(uint8_t source)
+	{
+		if (source > 0x07) return;
+		ADCSRB = (ADCSRB & ~0x07) | source;
+	}
+%% endif
+
+
+private:
+	static inline void
+	setPrescaler(Prescaler prescaler)
+	{
+		ADCSRA = (ADCSRA & ~0x07) | static_cast<uint8_t>(prescaler);
+	}
+};
+
+}	// namespace platform
+
+}	// namespace modm
+
+#endif	// MODM_ATTINY_ADC_HPP

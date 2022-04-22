@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2018, Niklas Hauser
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+
+def init(module):
+    module.name = ":driver:ad7280a"
+    module.description = """\
+# AD7280A Lithium Ion Battery Monitoring System
+
+The AD7280A is monitor for lithium ion battery packs with up to six
+cells. It contains six 12-ADCs with 1µs conversion per channel and
+a cell balancing interface.
+Up to 7 devices can be added through a Daisy-Chain interface (chain of
+8 devices).
+
+- cell voltage accuracy of ±1.6 mV.
+- Supply voltage 8-30V
+- six auxiliary ADC input channels
+
+Recommended SPI Clk frequency is 1 MHz. With a 1 MHz Clk, it takes
+approximately 1.54 ms to read back the voltage conversions on 48 channels.
+
+When addressing devices in the chain directly the frequency needs to
+be lower than 1 MHz because delays introduced in each stage of the chain.
+"""
+
+
+def prepare(module, options):
+    module.depends(
+        ":architecture:delay",
+        ":architecture:gpio",
+        ":architecture:spi",
+        ":io",
+        ":math:utils",
+        ":utils")
+    return True
+
+def build(env):
+    env.outbasepath = "modm/src/modm/driver/adc"
+    env.copy("ad7280a.hpp")
+    env.copy("ad7280a.cpp")
+    env.copy("ad7280a_impl.hpp")

@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2018, Niklas Hauser
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+def init(module):
+    module.name = ":ui:gui"
+    module.description = """\
+# Graphical User Interface
+
+Various classes for creating GUI applications.
+"""
+
+def prepare(module, options):
+    module.depends(
+        ":container",
+        ":debug",
+        ":processing:timer",
+        ":ui:display",
+        ":ui:gui",
+        ":ui:menu")
+    return True
+
+def build(env):
+    env.outbasepath = "modm/src/modm/ui/gui"
+    env.copy(".")
+    env.copy("../gui.hpp")

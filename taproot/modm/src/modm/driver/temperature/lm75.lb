@@ -1,0 +1,38 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2018, Niklas Hauser
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+
+def init(module):
+    module.name = ":driver:lm75"
+    module.description = """\
+# LM75 Thermometer
+
+LM75 digital temperature sensor driver.
+
+The LM75 is a digital temperature sensor with an I2C interface
+and measures temperature over a range of -55 to +125 deg Celsius with
+a resolution of 0.5 deg C and an accuracy of up to 2 deg C.
+
+The sensor has a default refresh rate between 3Hz and 10Hz which is
+hardcoded into the sensor and cannot be changed.
+"""
+
+def prepare(module, options):
+    module.depends(
+        ":architecture:i2c.device",
+        ":architecture:register")
+    return True
+
+def build(env):
+    env.outbasepath = "modm/src/modm/driver/temperature"
+    env.copy("lm75.hpp")
+    env.copy("lm75_impl.hpp")

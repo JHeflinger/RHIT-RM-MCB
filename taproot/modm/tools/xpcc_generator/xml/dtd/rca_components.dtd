@@ -1,0 +1,53 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!--
+Copyright (c) 2014, Sascha Schade
+Copyright (c) 2015, Georgi Grinshpun
+Copyright (c) 2015, Niklas Hauser
+
+This file is part of the modm project.
+
+This Source Code Form is subject to the terms of the Mozilla Public
+License, v. 2.0. If a copy of the MPL was not distributed with this
+file, You can obtain one at http://mozilla.org/MPL/2.0/.
+-->
+<!--
+    DTD for rca.
+-->
+
+<!ELEMENT rca (description|include|component)*>
+<!ATTLIST rca
+	version    CDATA    #REQUIRED
+>
+
+<!ELEMENT description (#PCDATA)>
+<!ELEMENT include (#PCDATA)>
+
+<!ELEMENT component (description|events|actions)*>
+<!ATTLIST component
+	id CDATA #IMPLIED
+	name CDATA #REQUIRED
+	extends CDATA #IMPLIED
+>
+
+<!ELEMENT events (publish?, subscribe?)>
+<!ELEMENT subscribe (event*)>
+<!ELEMENT publish (event*)>
+
+<!ELEMENT event (description?)>
+<!ATTLIST event
+	name CDATA #REQUIRED
+>
+
+<!ELEMENT actions (action*)>
+
+<!ELEMENT action (description?,errorcode*)>
+<!ATTLIST action
+	name CDATA #REQUIRED
+	id CDATA #REQUIRED
+	function CDATA #IMPLIED
+	parameterType CDATA #IMPLIED
+	returnType CDATA #IMPLIED
+	call (resumable|simple) #IMPLIED
+>
+
+

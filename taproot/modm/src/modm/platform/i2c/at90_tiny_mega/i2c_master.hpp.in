@@ -1,0 +1,134 @@
+/*
+ * Copyright (c) 2011, Georgi Grinshpun
+ * Copyright (c) 2011, 2017, Fabian Greif
+ * Copyright (c) 2011-2018, Niklas Hauser
+ * Copyright (c) 2012, Sascha Schade
+ *
+ * This file is part of the modm project.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+// ----------------------------------------------------------------------------
+
+#ifndef MODM_AVR_I2C_MASTER_HPP
+#define MODM_AVR_I2C_MASTER_HPP
+
+#include "i2c.hpp"
+#include <modm/architecture/interface/i2c_master.hpp>
+#include <modm/platform/gpio/connector.hpp>
+#include <algorithm>
+#include <cmath>
+
+namespace modm
+{
+
+namespace platform
+{
+
+/**
+ * Interrupt-driven I2C master module.
+ *
+ * Interrupts must be enabled.
+ *
+ * @author Niklas Hauser
+ * @ingroup	modm_platform_i2c
+ */
+class I2cMaster : public ::modm::I2cMaster, I2c
+{
+public:
+	template< template<Peripheral _> class... Signals, ResetDevices reset = ResetDevices::Standard>
+	static void
+	connect(PullUps pullups = PullUps::External)
+	{
+		using Connector = GpioConnector<Peripheral::Twi, Signals...>;
+		using Scl = typename Connector::template GetSignal<Gpio::Signal::Scl>;
+		using Sda = typename Connector::template GetSignal<Gpio::Signal::Sda>;
+		static_assert(sizeof...(Signals) == 2 and
+					  Connector::template IsValid<Scl> and Connector::template IsValid<Sda>,
+					  "I2cMaster::connect() requires one Scl and one Sda signal!");
+		const Gpio::InputType input =
+			(pullups == PullUps::Internal) ? Gpio::InputType::PullUp : Gpio::InputType::Floating;
+
+		Connector::disconnect();
+		using SCL = GpioOpenDrain<Scl>;
+		using SDA = GpioOpenDrain<Sda>;
+		SCL::configure(input);
+		SDA::configure(input);
+		SCL::setOutput();
+		SDA::setOutput();
+		if (reset != ResetDevices::NoReset) resetDevices<SCL, uint32_t(reset)>();
+		Connector::connect();
+	}
+
+	template< class SystemClock, baudrate_t baudrate=kHz(100), percent_t tolerance=pct(5) >
+	static modm_always_inline void
+	initialize()
+	{
+		// Prescalers: 1, 4, 16, 64
+		// SCL freq = CPU / (16 + 2 * TWBR * Pre)
+
+		constexpr uint32_t pre = (
+				(baudrate * 64ul * 255ul < SystemClock::I2c) ? 64 : (
+				(baudrate * 16ul * 255ul < SystemClock::I2c) ? 16 : (
+				(baudrate *  4ul * 255ul < SystemClock::I2c) ?  4 :
+																1
+				)));
+
+		// calculate the fractional prescaler value
+		constexpr float pre_part_raw = float(SystemClock::I2c) / ( 2 * baudrate );
+		constexpr float pre_raw = std::floor(pre_part_raw) < 8 ? 0 : (pre_part_raw - 8) / pre;
+		// respect the prescaler range of 0 to 255
+		constexpr uint32_t pre_ceil = std::min(uint32_t(std::ceil(pre_raw)), 255ul);
+		constexpr uint32_t pre_floor = std::floor(pre_raw);
+
+		// calculate the possible baudrates above and below the requested baudrate
+		constexpr uint32_t baud_lower = SystemClock::I2c / ( 16 + 2 * pre_ceil  * pre );
+		constexpr uint32_t baud_upper = SystemClock::I2c / ( 16 + 2 * pre_floor * pre );
+
+		// calculate the fractional prescaler value corresponding to the baudrate exactly
+		// between the upper and lower baudrate
+		constexpr uint32_t baud_middle = (baud_upper + baud_lower) / 2;
+		// decide which prescaler value is closer to a possible baudrate
+		constexpr uint32_t twbr = (baudrate < baud_middle) ? pre_ceil : pre_floor;
+
+		// check if within baudrate tolerance
+		constexpr uint32_t generated_baudrate = SystemClock::I2c / ( 16 + 2 * twbr * pre );
+		assertBaudrateInTolerance<
+				generated_baudrate,	// closest available baudrate
+				baudrate,			// desired baudrate
+				tolerance >();
+
+		// translate the prescaler into the bitmapping
+		constexpr Prescaler prescaler = (
+				(pre >=  64) ? Prescaler::Div64  : (
+				(pre >=  16) ? Prescaler::Div16  : (
+				(pre >=   4) ? Prescaler::Div4   :
+							   Prescaler::Div1
+				)));
+
+		initialize(twbr, prescaler);
+	};
+
+	// start documentation inherited
+	static bool
+	start(I2cTransaction *transaction, ConfigurationHandler handler = nullptr);
+
+	static Error
+	getErrorState();
+
+	static void
+	reset();
+	// end documentation inherited
+
+private:
+	static void
+	initialize(uint8_t twbr, Prescaler prescaler=Prescaler::Div1);
+};
+
+} // namespace platform
+
+} // namespace modm
+
+#endif // MODM_AVR_I2C_MASTER_HPP

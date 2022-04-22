@@ -1,0 +1,36 @@
+[submodule "ext/st/stm32"]
+	path = ext/st/stm32
+	url = https://github.com/modm-io/cmsis-header-stm32.git
+[submodule "ext/modm-devices"]
+	path = ext/modm-devices
+	url = https://github.com/modm-io/modm-devices.git
+[submodule "ext/ros/ros-lib"]
+	path = ext/ros/ros-lib
+	url = https://github.com/modm-io/ros-lib
+[submodule "ext/arm/cmsis"]
+	path = ext/arm/cmsis
+	url = https://github.com/modm-ext/cmsis-5-partial.git
+[submodule "ext/gcc/libstdc++"]
+	path = ext/gcc/libstdc++
+	url = https://github.com/modm-io/avr-libstdcpp.git
+[submodule "ext/mpaland/printf"]
+	path = ext/mpaland/printf
+	url = https://github.com/modm-ext/printf.git
+[submodule "ext/aws/freertos"]
+	path = ext/aws/freertos
+	url = https://github.com/modm-ext/freertos-partial.git
+[submodule "ext/adamgreen/crashcatcher"]
+	path = ext/adamgreen/crashcatcher
+	url = https://github.com/modm-ext/CrashCatcher-partial.git
+[submodule "ext/microchip/sam"]
+	path = ext/microchip/sam
+	url = https://github.com/modm-io/cmsis-header-sam.git
+[submodule "ext/hathach/tinyusb"]
+	path = ext/hathach/tinyusb
+	url = https://github.com/modm-ext/tinyusb-partial.git
+[submodule "ext/chan/fatfs"]
+	path = ext/chan/fatfs
+	url = https://github.com/modm-ext/fatfs-partial.git
+[submodule "ext/lvgl/lvgl"]
+	path = ext/lvgl/lvgl
+	url = https://github.com/modm-ext/lvgl-partial.git

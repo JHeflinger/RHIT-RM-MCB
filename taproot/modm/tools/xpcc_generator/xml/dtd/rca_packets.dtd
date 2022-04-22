@@ -1,0 +1,59 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!--
+Copyright (c) 2014, Sascha Schade
+Copyright (c) 2015, Niklas Hauser
+
+This file is part of the modm project.
+
+This Source Code Form is subject to the terms of the Mozilla Public
+License, v. 2.0. If a copy of the MPL was not distributed with this
+file, You can obtain one at http://mozilla.org/MPL/2.0/.
+-->
+
+<!ELEMENT rca (include|description|builtin|typedef|struct|enum)*>
+<!ATTLIST rca
+	version    CDATA    #REQUIRED
+>
+
+<!ELEMENT description (#PCDATA)>
+<!ELEMENT include (#PCDATA)>
+
+<!ELEMENT builtin (description?)>
+<!ATTLIST builtin
+	description CDATA #IMPLIED
+	name CDATA #REQUIRED
+	size CDATA #REQUIRED
+>
+
+<!ELEMENT typedef (description?)>
+<!ATTLIST typedef
+	name CDATA #REQUIRED
+	type CDATA #REQUIRED
+	unit CDATA #IMPLIED
+>
+
+<!ELEMENT struct (description?,element*)>
+<!ATTLIST struct
+	name CDATA #REQUIRED
+	extends CDATA #IMPLIED
+	description CDATA #IMPLIED
+	typeIdentifier CDATA #IMPLIED
+>
+
+<!ELEMENT enum (description?,element*)>
+<!ATTLIST enum
+	name CDATA #REQUIRED
+	typed (weak|strong) #IMPLIED
+	underlyingType (int8_t|uint8_t|int16_t|uint16_t|int32_t|uint32_t|int64_t|uint64_t) #IMPLIED
+>
+
+<!ELEMENT element (description?)>
+<!ATTLIST element
+	name CDATA #REQUIRED
+	value CDATA #IMPLIED
+	string CDATA #IMPLIED
+	type CDATA #IMPLIED
+	unit CDATA #IMPLIED
+	description CDATA #IMPLIED
+>
+

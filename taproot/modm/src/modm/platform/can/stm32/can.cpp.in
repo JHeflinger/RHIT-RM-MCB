@@ -1,0 +1,485 @@
+/*
+ * Copyright (c) 2011-2012, 2017, Fabian Greif
+ * Copyright (c) 2012-2014, 2016-2017, Sascha Schade
+ * Copyright (c) 2013-2014, 2016, Kevin Läufer
+ * Copyright (c) 2014, Georgi Grinshpun
+ * Copyright (c) 2014, 2016-2018, Niklas Hauser
+ * Copyright (c) 2018, Christopher Durand
+ *
+ * This file is part of the modm project.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+// ----------------------------------------------------------------------------
+
+#include <modm/architecture/driver/atomic/queue.hpp>
+#include <modm/utils.hpp>
+#include <modm/architecture/interface/assert.hpp>
+#include <modm/architecture/interface/interrupt.hpp>
+#include <modm/architecture/interface/delay.hpp>
+#include <modm/platform/clock/rcc.hpp>
+#include <cstring>
+
+%% if id == ""
+#include "can.hpp"
+%% else
+#include "can_{{ id }}.hpp"
+%% endif
+
+// ----------------------------------------------------------------------------
+// CAN bit timing register (CAN_BTR)
+#define CAN_BTR_SJW_POS		24
+#define CAN_BTR_TS2_POS		20
+#define CAN_BTR_TS1_POS		16
+
+// ----------------------------------------------------------------------------
+%% if options["buffer.tx"] > 0
+static modm::atomic::Queue<modm::can::Message, {{ options["buffer.tx"] }}> txQueue;
+%% endif
+
+struct RxMessage {
+    modm::can::Message message;
+    uint8_t filter_id;
+};
+%% if options["buffer.rx"] > 0
+static modm::atomic::Queue<RxMessage, {{ options["buffer.rx"] }}> rxQueue;
+%% endif
+
+
+// ----------------------------------------------------------------------------
+bool
+modm::platform::Can{{ id }}::initializeWithPrescaler(
+		uint16_t prescaler, uint8_t bs1, uint8_t bs2,
+		uint32_t interruptPriority, Mode startupMode, bool overwriteOnOverrun)
+{
+%% macro enable_reset(instance)
+	Rcc::enable<Peripheral::Can{{ instance }}>();
+%% endmacro
+%% if type == "Slave"
+	// enable and reset master if disabled
+	if (not Rcc::isEnabled<Peripheral::Can{{ other_instance }}>()) {
+	{{ enable_reset(other_instance) | lbuild.indent(4) }}
+	}
+%% endif
+%% if type == "Master"
+	// skip enable and reset if device has already been enabled by slave
+	if (not Rcc::isEnabled<Peripheral::Can{{ own_instance }}>()) {
+	{{ enable_reset(own_instance) | lbuild.indent(4) }}
+	}
+%% else
+	{{ enable_reset(id) }}
+%% endif
+
+	// CAN Master Reset
+	// FMP bits and CAN_MCR register are initialized to the reset values
+	{{ reg }}->MCR |= CAN_MCR_RESET;
+	while ({{ reg }}->MCR & CAN_MCR_RESET)
+		;
+
+	// Exit from sleep mode
+	{{ reg }}->MCR &= (~(uint32_t)CAN_MCR_SLEEP);
+
+	// Bus off is left automatically by the hardware after 128 occurrences
+	// of 11 recessive bits, TX Order depends on the order of request and
+	// not on the CAN priority.
+	if (overwriteOnOverrun) {
+		{{ reg }}->MCR |= CAN_MCR_ABOM | CAN_MCR_TXFP;
+	}
+	else {
+		// No overwrite at RX FIFO: Once a receive FIFO is full the next
+		// incoming message will be discarded
+		{{ reg }}->MCR |= CAN_MCR_ABOM | CAN_MCR_RFLM | CAN_MCR_TXFP;
+	}
+
+	// Request initialization
+	{{ reg }}->MCR |= CAN_MCR_INRQ;
+	int deadlockPreventer = 10'000; // max ~10ms
+	while ((({{ reg }}->MSR & CAN_MSR_INAK) == 0) and (deadlockPreventer-- > 0)) {
+		modm::delay_us(1);
+		// Wait until the initialization mode is entered.
+		// The CAN hardware waits until the current CAN activity (transmission
+		// or reception) is completed before entering the initialization mode.
+	}
+	if (deadlockPreventer == 0)
+		return false;
+
+	// Enable Interrupts:
+	// FIFO1 Overrun, FIFO0 Overrun
+	{{ reg }}->IER = CAN_IER_FOVIE1 | CAN_IER_FOVIE0;
+
+%% if options["buffer.tx"] > 0
+	{{ reg }}->IER |= CAN_IER_TMEIE;
+%% endif
+
+%% if target["family"] == "f0"
+	// Set vector priority
+	NVIC_SetPriority(CEC_CAN_IRQn, interruptPriority);
+
+	// Register Interrupts at the NVIC
+	NVIC_EnableIRQ(CEC_CAN_IRQn);
+%% else
+	// Set vector priority
+	NVIC_SetPriority({{ reg }}_RX0_IRQn, interruptPriority);
+	NVIC_SetPriority({{ reg }}_RX1_IRQn, interruptPriority);
+
+	// Register Interrupts at the NVIC
+	NVIC_EnableIRQ({{ reg }}_RX0_IRQn);
+	NVIC_EnableIRQ({{ reg }}_RX1_IRQn);
+
+	%% if options["buffer.tx"] > 0
+	NVIC_EnableIRQ({{ reg }}_TX_IRQn);
+	NVIC_SetPriority({{ reg }}_TX_IRQn, interruptPriority);
+	%% endif
+%% endif
+
+
+
+%% if options["buffer.rx"] > 0
+	{{ reg }}->IER |= CAN_IER_FMPIE1 | CAN_IER_FMPIE0;
+%% endif
+
+	{{ reg }}->BTR =
+			  ((1 - 1) << CAN_BTR_SJW_POS) |		// SJW (1 to 4 possible)
+			((bs2 - 1) << CAN_BTR_TS2_POS) |		// BS2 Samplepoint
+			((bs1 - 1) << CAN_BTR_TS1_POS) |		// BS1 Samplepoint
+			static_cast<uint32_t>(startupMode) |
+			(prescaler - 1);
+
+	// Request leave initialization
+	{{ reg }}->MCR &= ~(uint32_t)CAN_MCR_INRQ;
+	deadlockPreventer = 10'000; // max ~10ms
+	while ((({{ reg }}->MSR & CAN_MSR_INAK) == CAN_MSR_INAK) and (deadlockPreventer-- > 0))  {
+		// wait for the normal mode
+	}
+	return deadlockPreventer > 0;
+}
+
+// ----------------------------------------------------------------------------
+// Configure the mailbox to send a CAN message.
+// Low level function called by sendMessage and by Tx Interrupt.
+static void
+sendMailbox(const modm::can::Message& message, uint32_t mailboxId)
+{
+	CAN_TxMailBox_TypeDef* mailbox = &{{ reg }}->sTxMailBox[mailboxId];
+
+	if (message.isExtended()) {
+		mailbox->TIR = message.identifier << 3 | CAN_TI0R_IDE;
+	}
+	else {
+		mailbox->TIR = message.identifier << 21;
+	}
+
+	if (message.isRemoteTransmitRequest()) {
+		mailbox->TIR |= CAN_TI0R_RTR;
+	}
+
+	// Set up the DLC
+	mailbox->TDTR = message.getLength();
+
+	// Set up the data field (copy the 8x8-bits into two 32-bit registers)
+	const uint8_t * modm_may_alias data = message.data;
+	mailbox->TDLR = reinterpret_cast<const uint32_t *>(data)[0];
+	mailbox->TDHR = reinterpret_cast<const uint32_t *>(data)[1];
+
+	// Request transmission
+	mailbox->TIR |= CAN_TI0R_TXRQ;
+}
+
+// ----------------------------------------------------------------------------
+// Low level function to receive a message from mailbox.
+// Called by Rx Interrupt or by getMessage.
+static void
+readMailbox(modm::can::Message& message, uint32_t mailboxId, uint8_t* filter_id)
+{
+	CAN_FIFOMailBox_TypeDef* mailbox = &{{ reg }}->sFIFOMailBox[mailboxId];
+
+	uint32_t rir = mailbox->RIR;
+	if (rir & CAN_RI0R_IDE) {
+		message.identifier = rir >> 3;
+		message.setExtended();
+	}
+	else {
+		message.identifier = rir >> 21;
+		message.setExtended(false);
+	}
+	message.setRemoteTransmitRequest(rir & CAN_RI0R_RTR);
+
+	message.length = mailbox->RDTR & CAN_TDT1R_DLC;
+	if(filter_id != nullptr)
+        (*filter_id) = (mailbox->RDTR & CAN_RDT1R_FMI) >> CAN_RDT1R_FMI_Pos;
+
+	uint8_t * modm_may_alias data = message.data;
+	reinterpret_cast<uint32_t *>(data)[0] = mailbox->RDLR;
+	reinterpret_cast<uint32_t *>(data)[1] = mailbox->RDHR;
+}
+
+// ----------------------------------------------------------------------------
+/* Transmit Interrupt
+ *
+ * Generated when Transmit Mailbox 0..2 becomes empty.
+ */
+
+MODM_ISR({{ reg }}_TX)
+{
+%% if options["buffer.tx"] > 0
+	uint32_t mailbox;
+	uint32_t tsr = {{ reg }}->TSR;
+
+	if (tsr & CAN_TSR_RQCP2) {
+		mailbox = 2;
+		{{ reg }}->TSR = CAN_TSR_RQCP2;
+	}
+	else if (tsr & CAN_TSR_RQCP1) {
+		mailbox = 1;
+		{{ reg }}->TSR = CAN_TSR_RQCP1;
+	}
+	else {
+		mailbox = 0;
+		{{ reg }}->TSR = CAN_TSR_RQCP0;
+	}
+
+	if (txQueue.isNotEmpty())
+	{
+		sendMailbox(txQueue.get(), mailbox);
+		txQueue.pop();
+	}
+%% endif
+}
+
+// ----------------------------------------------------------------------------
+/* FIFO0 Interrupt
+ *
+ * Generated on a new received message, FIFO0 full condition and Overrun
+ * Condition.
+ */
+MODM_ISR({{ reg }}_RX0)
+{
+	if (not modm_assert_continue_ignore(not ({{ reg }}->RF0R & CAN_RF0R_FOVR0),
+			"can.rx.hw0", "CAN receive hardware buffer overflowed!", {{ 0 if id == '' else id }}))
+	{
+		// release overrun flag & access the next message
+		{{ reg }}->RF0R = CAN_RF0R_FOVR0 | CAN_RF0R_RFOM0;
+	}
+
+%% if options["buffer.rx"] > 0
+	RxMessage rxMessage;
+	readMailbox(rxMessage.message, 0, &(rxMessage.filter_id));
+
+	// Release FIFO (access the next message)
+	{{ reg }}->RF0R = CAN_RF0R_RFOM0;
+
+	modm_assert_continue_ignore(rxQueue.push(rxMessage), "can.rx.sw0",
+		"CAN receive software buffer overflowed!", {{ 0 if id == '' else id }});
+%% endif
+}
+
+// ----------------------------------------------------------------------------
+/* FIFO1 Interrupt
+ *
+ * See FIFO0 Interrupt
+ */
+MODM_ISR({{ reg }}_RX1)
+{
+	if (not modm_assert_continue_ignore(not ({{ reg }}->RF1R & CAN_RF1R_FOVR1),
+			"can.rx.hw1", "CAN receive hardware buffer overflowed!", {{ 0 if id == '' else id }}))
+	{
+		// release overrun flag & access the next message
+		{{ reg }}->RF1R = CAN_RF1R_FOVR1 | CAN_RF1R_RFOM1;
+	}
+
+%% if options["buffer.rx"] > 0
+	RxMessage rxMessage;
+	readMailbox(rxMessage.message, 1, &(rxMessage.filter_id));
+
+	// Release FIFO (access the next message)
+	{{ reg }}->RF1R = CAN_RF1R_RFOM1;
+
+	modm_assert_continue_ignore(rxQueue.push(rxMessage), "can.rx.sw1",
+		"CAN receive software buffer overflowed!", {{ 0 if id == '' else id }});
+%% endif
+}
+
+%% if target["family"] == "f0"
+// On stm32f0, ST has decided to use only one interrupt vector for all
+// CAN interrupts. In order to avoide duplicate code, we try to determine
+// the interrupt source and call the correct interrupts function defined above.
+// Sources for the different interrupts are specified in the Reference Manual
+// in the "bxCAN interrupts" section.
+MODM_ISR(CEC_CAN)
+{
+	if({{ reg }}->TSR & (CAN_TSR_RQCP0 | CAN_TSR_RQCP1 | CAN_TSR_RQCP2)) {
+		MODM_ISR_CALL({{ reg }}_TX);
+	}
+
+	if({{ reg }}->RF0R & (CAN_RF0R_FMP0 | CAN_RF0R_FULL0 | CAN_RF0R_FOVR0)) {
+		MODM_ISR_CALL({{ reg }}_RX0);
+	}
+
+	if({{ reg }}->RF1R & (CAN_RF1R_FMP1 | CAN_RF1R_FULL1 | CAN_RF1R_FOVR1)) {
+		MODM_ISR_CALL({{ reg }}_RX1);
+	}
+
+	// TODO: we do not handle status changes at the moment.
+}
+%% endif
+
+// ----------------------------------------------------------------------------
+void
+modm::platform::Can{{ id }}::setMode(Mode mode)
+{
+	// Request initialization
+	{{ reg }}->MCR |= CAN_MCR_INRQ;
+	while (({{ reg }}->MSR & CAN_MSR_INAK) == 0) {
+		// Wait until the initialization mode is entered.
+		// The CAN hardware waits until the current CAN activity (transmission
+		// or reception) is completed before entering the initialization mode.
+	}
+
+	{{ reg }}->BTR = ({{ reg }}->BTR & ~(CAN_BTR_SILM | CAN_BTR_LBKM))
+						| static_cast<uint32_t>(mode);
+
+	// Leave initialization mode
+	{{ reg }}->MCR &= ~CAN_MCR_INRQ;
+}
+
+// ----------------------------------------------------------------------------
+void
+modm::platform::Can{{ id }}::setAutomaticRetransmission(bool retransmission)
+{
+	if (retransmission) {
+		// Enable retransmission
+		{{ reg }}->MCR = ({{ reg }}->MCR & ~CAN_MCR_NART);
+	} else {
+		// Disable retransmission
+		{{ reg }}->MCR = ({{ reg }}->MCR | CAN_MCR_NART);
+	}
+}
+
+// ----------------------------------------------------------------------------
+bool
+modm::platform::Can{{ id }}::isMessageAvailable()
+{
+%% if options["buffer.rx"] > 0
+	return rxQueue.isNotEmpty();
+%% else
+	// Check if there are any messages pending in the receive registers
+	return (({{ reg }}->RF0R & CAN_RF0R_FMP0) > 0 || ({{ reg }}->RF1R & CAN_RF1R_FMP1) > 0);
+%% endif
+}
+
+// ----------------------------------------------------------------------------
+bool
+modm::platform::Can{{ id }}::getMessage(can::Message& message, uint8_t *filter_id)
+{
+%% if options["buffer.rx"] > 0
+	if (rxQueue.isEmpty())
+	{
+		// no message in the receive buffer
+		return false;
+	}
+	else {
+        auto& rxMessage = rxQueue.get();
+		memcpy(&message, &rxMessage.message, sizeof(message));
+        if(filter_id != nullptr) (*filter_id) = rxMessage.filter_id;
+		rxQueue.pop();
+		return true;
+	}
+%% else
+	if (({{ reg }}->RF0R & CAN_RF0R_FMP0) > 0)
+	{
+		readMailbox(message, 0, filter_id);
+
+		// Release FIFO (access the next message)
+		{{ reg }}->RF0R = CAN_RF0R_RFOM0;
+		return true;
+	}
+	else if (({{ reg }}->RF1R & CAN_RF1R_FMP1) > 0)
+	{
+		readMailbox(message, 1, filter_id);
+
+		// Release FIFO (access the next message)
+		{{ reg }}->RF1R = CAN_RF1R_RFOM1;
+		return true;
+	}
+	return false;
+%% endif
+}
+
+// ----------------------------------------------------------------------------
+bool
+modm::platform::Can{{ id }}::isReadyToSend()
+{
+%% if options["buffer.tx"] > 0
+	return txQueue.isNotFull();
+%% else
+	return (({{ reg }}->TSR & (CAN_TSR_TME0 | CAN_TSR_TME1 | CAN_TSR_TME2)) != 0);
+%% endif
+}
+
+// ----------------------------------------------------------------------------
+bool
+modm::platform::Can{{ id }}::sendMessage(const can::Message& message)
+{
+	// This function is not reentrant. If one of the mailboxes is empty it
+	// means that the software buffer is empty too. Therefore the mailbox
+	// will stay empty and won't be taken by an interrupt.
+	if (({{ reg }}->TSR & (CAN_TSR_TME0 | CAN_TSR_TME1 | CAN_TSR_TME2)) == 0)
+	{
+		// All mailboxes used at the moment
+%% if options["buffer.tx"] > 0
+		if (not modm_assert_continue_ignore(txQueue.push(message), "can.tx",
+				"CAN transmit software buffer overflowed!", {{ 0 if id == '' else id }})) {
+			return false;
+		}
+		return true;
+%% else
+		return false;
+%% endif
+	}
+	else {
+		// Get number of the first free mailbox
+		uint32_t mailbox = ({{ reg }}->TSR & CAN_TSR_CODE) >> 24;
+
+		sendMailbox(message, mailbox);
+		return true;
+	}
+}
+
+// ----------------------------------------------------------------------------
+modm::platform::Can{{ id }}::BusState
+modm::platform::Can{{ id }}::getBusState()
+{
+	if ({{ reg }}->ESR & CAN_ESR_BOFF) {
+		return BusState::Off;
+	}
+	else if ({{ reg }}->ESR & CAN_ESR_EPVF) {
+		return BusState::ErrorPassive;
+	}
+	else if ({{ reg }}->ESR & CAN_ESR_EWGF) {
+		return BusState::ErrorWarning;
+	}
+	else {
+		return BusState::Connected;
+	}
+}
+
+// ----------------------------------------------------------------------------
+void
+modm::platform::Can{{ id }}::enableStatusChangeInterrupt(
+		uint32_t interruptEnable,
+%% if target["family"] == "f0"
+		uint32_t
+%% else
+		uint32_t interruptPriority
+%% endif
+)
+{
+%% if target["family"] != "f0"
+	NVIC_SetPriority({{ reg }}_SCE_IRQn, interruptPriority);
+	NVIC_EnableIRQ({{ reg }}_SCE_IRQn);
+%% endif
+
+	{{ reg }}->IER = interruptEnable | ({{ reg }}->IER & 0x000000ff);
+}

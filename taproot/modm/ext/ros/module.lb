@@ -1,0 +1,30 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2018, Niklas Hauser
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+def init(module):
+    module.name = ":ros"
+    module.description = """\
+# ROS Library
+
+Repository of generated messages headers for rosserial.
+See https://github.com/modm-io/ros-lib.
+"""
+
+def prepare(module, options):
+    return True
+
+def build(env):
+    env.collect(":build:path.include", "modm/ext/ros")
+
+    env.outbasepath = "modm/ext"
+    env.copy("ros-lib/ros_lib", "ros")
+

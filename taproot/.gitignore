@@ -1,0 +1,8 @@
+.vscode/.cortex-debug.peripherals.state.json
+.vscode/.cortex-debug.registers.state.json
+.sconsign.dblite
+*.pyc
+docs/_build
+docs/api
+docs/doxyoutput
+gcov-result

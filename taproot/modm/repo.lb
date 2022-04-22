@@ -1,0 +1,295 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2017, Fabian Greif
+# Copyright (c) 2017-2018, Niklas Hauser
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+import re
+import sys
+import glob
+import hashlib
+import platform
+
+from pathlib import Path
+from distutils.version import StrictVersion
+from git import Repo
+from os.path import normpath
+
+# Check for miminum required lbuild version
+import lbuild
+min_lbuild_version = "1.17.0"
+if StrictVersion(getattr(lbuild, "__version__", "0.1.0")) < StrictVersion(min_lbuild_version):
+    print("modm requires at least lbuild v{}, please upgrade!\n"
+          "    pip3 install -U lbuild".format(min_lbuild_version))
+    exit(1)
+
+# Check for submodule existance and their version
+def check_submodules():
+    repo = Repo(localpath("."))
+    has_error = True
+    if any(not sm.module_exists() for sm in repo.submodules):
+        print("\n>> modm: One or more git submodules in `modm/ext/` is missing!\n"
+              ">> modm: Please checkout the submodules:\n\n"
+              "    cd modm\n"
+              "    git submodule update --init\n")
+        exit(1)
+    elif any(sm.hexsha != sm.module().commit().hexsha for sm in repo.submodules):
+        print("\n>> modm: One or more git submodules in `modm/ext/` is not up-to-date!\n"
+              ">> modm: Please update the submodules:\n\n"
+              "    cd modm\n"
+              "    git submodule sync\n"
+              "    git submodule update --init\n")
+
+# Import modm-device tools
+sys.path.append(repopath("ext/modm-devices"))
+try:
+    import modm_devices.parser
+except ModuleNotFoundError:
+    check_submodules()
+
+# =============================================================================
+class DevicesCache(dict):
+    """
+    Building the device enumeration from modm-device is quite expensive,
+    so we cache the results in `ext/modm-devices.cache`
+    The text file contains two maps:
+
+      1. partname -> file-name.xml
+         We use this to populate the `:target` option, but we only
+         actually parse the device file and build the device on the first
+         access of the value.
+
+      2. file-name.xml -> MD5 hash
+         This is used to check if any files have changed their contents.
+         No additional checks are done, if files have moved, this may fail.
+    """
+
+    def __init__(self):
+        dict.__init__(self)
+        self.device_to_file = {}
+
+    def parse_all(self):
+        mapping = {}
+        device_file_names  = glob.glob(repopath("ext/modm-devices/devices/**/*.xml"))
+        device_file_names += glob.glob(repopath("tools/devices/**/*.xml"))
+
+        # roughly filter to supported devices
+        supported = ["stm32f0", "stm32f1", "stm32f2", "stm32f3", "stm32f4", "stm32f7",
+                     "stm32g0", "stm32g4",
+                     "stm32h7",
+                     "stm32l0", "stm32l1", "stm32l4",
+                     "at90", "attiny", "atmega",
+                     "samd21",
+                     "hosted"]
+        device_file_names = [dfn for dfn in device_file_names if any(s in dfn for s in supported)]
+        # These files are ignored due to various issues
+        ignored = [d for d in Path(repopath("test/all/ignored.txt")).read_text().strip().splitlines() if "#" not in d]
+
+        # Parse the files and build the :target enumeration
+        parser = modm_devices.parser.DeviceParser()
+        for device_file_name in device_file_names:
+            device_file = parser.parse(device_file_name)
+            for device in device_file.get_devices():
+                if not any(device.partname.startswith(i) for i in ignored):
+                    self[device.partname] = device
+                    mapping[device.partname] = device_file_name
+
+        return mapping
+
+    def build(self):
+        cache = Path(repopath("ext/modm-devices.cache"))
+        repos = {p:None for p in [".", "ext/modm-devices"]}
+        recompute_required = not cache.exists()
+
+        if cache.exists():
+            # Read cache file and populate :target
+            for line in cache.read_text().splitlines():
+                line = line.split(" ")
+                if line[0].startswith("/"):
+                    file = line[0][1:]
+
+                    # Store repo shas
+                    if file in repos.keys():
+                        repos[file] = line[1]
+                        continue
+
+                    # Check normal files
+                    file = Path(repopath(file))
+                    if not file.exists() or (line[1] != hashlib.md5(file.read_bytes()).hexdigest()):
+                        recompute_required = True
+                        break
+                else:
+                    # Store None as device file value
+                    self.device_to_file[line[0]] = line[1]
+                    self[line[0]] = None
+
+        try:
+            # Check with real repository shas
+            real_repos = {path:Repo(repopath(path)).commit().hexsha for path in repos}
+            if any(real_repos[path] != sha for path, sha in repos.items()):
+                recompute_required = True
+            repos = real_repos
+        except:
+            recompute_required = True
+
+        if recompute_required:
+            check_submodules()
+            print(">> modm: Recomputing device cache...")
+            content = self.parse_all()
+            # prefix the files with a / so we can distinguish them from partnames
+            files = ["/{} {}".format(Path(f).relative_to(repopath(".")),
+                                    hashlib.md5(Path(f).read_bytes()).hexdigest())
+                     for f in set(content.values())]
+            content = ["{} {}".format(d, Path(f).relative_to(repopath(".")))
+                       for (d, f) in content.items()]
+            repos = ["/{} {}".format(path, sha) for path, sha in repos.items()]
+            content = sorted(content) + sorted(files + repos)
+            cache.write_text("\n".join(content))
+
+    def __getitem__(self, item):
+        value = dict.__getitem__(self, item)
+        if value is None:
+            # Parse the device file and build its devices
+            parser = modm_devices.parser.DeviceParser()
+            device_file = parser.parse(repopath(self.device_to_file[item]))
+            for device in device_file.get_devices():
+                self[device.partname] = device
+            return self[item]
+        return value
+
+# =============================================================================
+class TargetOption(EnumerationOption):
+    """
+    Allows the target string to be longer than required by selecting the best
+    fitting target string and adds the revision to the device identifier.
+    """
+
+    def as_enumeration(self, value):
+        revision = "" # split revision from the input value
+        if "/rev" in value: value, revision = value.split("/rev");
+        target = self._obj_to_str(value)
+        targets = self._enumeration.keys()
+
+        # check if input string is part of keys OR longer
+        while(len(target) > len("attiny4-")):
+            if target in targets:
+                target = self._enumeration[target]
+                target._identifier.set("revision", revision.lower())
+                return target
+            else:
+                # cut off last character and try again
+                target = target[:-1]
+
+        # check if input string yields ambiguous results
+        target = self._obj_to_str(value)
+        targets = [t for t in targets if t.startswith(target)]
+        if len(targets):
+            from lbuild.exception import _bp, _hl
+            raise ValueError(_hl("Ambiguous target!\n") + "Multiple devices found:\n\n" + _bp(targets))
+
+        # Otherwise completely unknown target
+        raise TypeError("Target is unknown!")
+
+# =============================================================================
+from lbuild.format import ansi_escape as c
+def modm_format_description(node, description):
+    # Remove the HTML comments we use for describing doc tests
+    description = re.sub(r"\n?<!--.*?-->", "", description, flags=re.S)
+    # Indent code content
+    for block in re.finditer(r"\n```.*?(\n.*?)\n```", description, flags=re.M|re.S):
+        description = description.replace(block.group(0), block.group(1).replace("\n", "\n    "))
+    # format any markdown headers bold
+    description = re.sub(r"^(#+.*)", r"{}\g<1>{}".format(str(c("bold")), str(c("no_bold"))), description, flags=re.M)
+    return node.format_description(node, description)
+
+def modm_format_short_description(node, description):
+    # All docs use Markdown, so they might start with a `# Header`
+    description = re.sub(r"\n?<!--.*?-->", "", description, flags=re.S)
+    return node.format_short_description(node, description.replace("#", ""))
+
+# =============================================================================
+def init(repo):
+    repo.name = "modm"
+    repo.description = FileReader("README.md")
+    repo.format_description = modm_format_description
+    repo.format_short_description = modm_format_short_description
+    repo.add_ignore_patterns("*/*.lb", "*/board.xml")
+
+    # Add the board configuration files as their module name aliases
+    for config in Path(repopath("src/modm/board")).glob("*/board.xml"):
+        name = re.search(r"<module>modm:board:(.*?)</module>", config.read_text()).group(1)
+        if (config.parent / "module.md").exists():
+            description = FileReader(str(config.parent / "module.md"))
+        else:
+            description = re.search(r'\.description += +(""".*?"""|".*?")',
+                            (config.parent / "module.lb").read_text(), flags=re.S|re.M)
+            description = description.group(1).strip('"\\') if description else None
+        repo.add_configuration(name, config, description)
+
+    # Backwards compatible move, remove this in 2022.
+    repo.add_alias(Alias(name="blue-pill", destination=":blue-pill-f103",
+                         description="Renamed for clarity."))
+    repo.add_alias(Alias(name="black-pill", destination=":black-pill-f103",
+                         description="Renamed for clarity."))
+    repo.add_alias(Alias(name="mini-f401", destination=":black-pill-f401",
+                         description="Renamed for clarity."))
+    repo.add_alias(Alias(name="mini-f411", destination=":black-pill-f411",
+                         description="Renamed for clarity."))
+
+    # Add Jinja2 filters commonly used in this repository
+    if 'Windows' in platform.platform():
+        def windowsify(path, escape_level):
+            path = normpath(path)
+            escaped = "\\" * (2 ** escape_level)
+            return path.replace("\\", escaped)
+        def posixify(path):
+            return normpath(path).replace("\\", "/")
+    else:
+        def windowsify(path, escape_level):
+            return normpath(path)
+        def posixify(path):
+            return normpath(path)
+    repo.add_filter("modm.windowsify", windowsify)
+    repo.add_filter("modm.posixify", posixify)
+    repo.add_filter("modm.ord", lambda letter: ord(letter[0].lower()) - ord("a"))
+    repo.add_filter("modm.chr", lambda num: chr(num + ord("A")))
+
+    # Compute the available data from modm-devices
+    devices = DevicesCache()
+    try:
+        devices.build()
+    except (modm_devices.ParserException) as e:
+        print(e)
+        exit(1)
+
+    repo.add_option(
+        TargetOption(name="target",
+                     description=descr_target,
+                     enumeration=devices))
+
+def prepare(repo, options):
+    repo.add_modules_recursive("ext", modulefile="*.lb")
+    repo.add_modules_recursive("src", modulefile="*.lb")
+    repo.add_modules_recursive("tools", modulefile="*.lb")
+
+def build(env):
+    env.collect(":build:path.include", "modm/src")
+
+
+# ============================ Option Descriptions ============================
+descr_target = """# Device identifier
+
+This is the long string written on your microcontroller that uniquely identifies
+the target device for which to generate the modm HAL.
+
+You can optionally add the hardware revision to the identifier string by
+appending `/revX` where X is the revision. This can help modm apply workarounds
+for specific hardware bugs as recommended by the errata sheet.
+"""

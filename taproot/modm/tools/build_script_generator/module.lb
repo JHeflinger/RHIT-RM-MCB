@@ -1,0 +1,310 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2017-2018, Niklas Hauser
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+import os, sys, re
+from pathlib import Path
+
+# import all common code
+with open(localpath("common.py")) as common:
+    exec(common.read())
+
+class BuildModuleDocs:
+    def __init__(self):
+        self._content = None
+
+    def __str__(self):
+        if self._content is None:
+            self._content = Path(localpath("module.md")).read_text(encoding="utf-8").strip()
+            tools = ["avrdude", "openocd", "bmp", "gdb", "size", "info",
+                     "unit_test", "log", "build_id", "bitmap"]
+
+            for tool in tools:
+                tpath = Path(repopath("tools/modm_tools/{}.py".format(tool)))
+                doc = None
+                # Documentation is inside a Markdown file
+                if tpath.with_suffix(".md").exists():
+                    doc = tpath.with_suffix(".md").read_text(encoding="utf-8")
+                # Documentation is inside the tool as a docstring
+                elif tpath.exists():
+                    doc = re.search('"""(.*?)"""', tpath.read_text(encoding="utf-8"), flags=re.DOTALL | re.MULTILINE)
+                    if doc: doc = doc.group(1);
+                if doc is not None:
+                    self._content += "\n\n\n" + doc.strip()
+
+        return self._content
+
+# -----------------------------------------------------------------------------
+def init(module):
+    module.name = ":build"
+    module.description = BuildModuleDocs()
+
+
+def prepare(module, options):
+    default_project_name = os.path.split(os.getcwd())[1].replace(".", "_").replace(" ", "_")
+    platform = options[":target"].identifier["platform"]
+    is_cortex_m = options[":target"].has_driver("core:cortex-m*")
+
+    # Options
+    module.add_option(
+        StringOption(name="project.name", default=default_project_name,
+                     description=descr_project_name))
+    module.add_option(
+        PathOption(name="build.path", default="build/"+default_project_name, absolute=True,
+                   description=descr_build_path))
+    module.add_option(
+        PathOption(name="unittest.source", default="", empty_ok=True, absolute=True,
+                   description=descr_unittest_source))
+    module.add_option(
+        PathOption(name="image.source", default="", empty_ok=True, absolute=True,
+                   description=descr_image_source))
+
+    module.add_option(
+        EnumerationOption(name="info.git", default="Disabled",
+                          enumeration=["Disabled", "Info", "Info+Status"],
+                          description=descr_info_git))
+    module.add_option(
+        BooleanOption(name="info.build", default=False,
+                      description=descr_info_build))
+
+    if platform in ["avr"]:
+        module.add_option(
+            StringOption(name="avrdude.programmer", default="",
+                         description="AvrDude programmer"))
+        module.add_option(
+            StringOption(name="avrdude.port", default="",
+                         description="AvrDude programmer port"))
+        module.add_option(
+            NumericOption(name="avrdude.baudrate", minimum=0, default=0,
+                          description="AvrDude programmer baudrate"))
+        module.add_option(
+            StringOption(name="avrdude.options", default="",
+                         description="AvrDude programmer options"))
+
+    elif is_cortex_m:
+        module.add_option(
+            PathOption(name="openocd.cfg", default="", empty_ok=True, absolute=True,
+                       description=descr_openocd_cfg))
+
+    # Queries
+    module.add_query(
+        EnvironmentQuery(name="source_files", factory=common_source_files))
+    module.add_query(
+        EnvironmentQuery(name="device", factory=common_target))
+    module.add_query(
+        EnvironmentQuery(name="memories", factory=common_memories))
+    module.add_query(
+        EnvironmentQuery(name="avrdude_options", factory=common_avrdude_options))
+    module.add_query(
+        Query(name="collect_flags", function=common_collect_flags_for_scope))
+
+    # Collections
+    module.add_collector(
+        PathCollector(name="path.include",
+                      description="Search path for header files"))
+    module.add_collector(
+        PathCollector(name="path.library",
+                      description="Search path for static libraries"))
+    def validate_library(library):
+        if library.startswith("lib") or library.endswith(".a"):
+            raise ValueError("Libraries must only contain `name` not `libname.a`!")
+        return library
+    module.add_collector(
+        StringCollector(name="library",
+                        description="Libraries to link against",
+                        validate=validate_library))
+    module.add_collector(
+        StringCollector(name="pkg-config",
+                        description="Packages to configure against"))
+
+    module.add_collector(
+        PathCollector(name="gitignore",
+                      description="Generated files that need to be ignored by Git"))
+
+    if is_cortex_m:
+        module.add_collector(
+            PathCollector(name="openocd.source",
+                          description="Additional OpenOCD source files."))
+        module.add_collector(
+            PathCollector(name="path.openocd",
+                          description="Search path for OpenOCD configuration files"))
+
+        if platform == "sam":
+            module.add_collector(
+                StringCollector(name="bossac.options",
+                                description="Additional BOSSAc options"))
+
+    elif platform in ["avr"]:
+        module.add_collector(
+            StringCollector(name="default.avrdude.programmer",
+                            description="Default AvrDude programmer"))
+        module.add_collector(
+            NumericCollector(name="default.avrdude.baudrate", minimum=0,
+                             description="Default AvrDude baudrate"))
+        module.add_collector(
+            StringCollector(name="default.avrdude.port",
+                            description="Default AvrDude port"))
+        module.add_collector(
+            StringCollector(name="default.avrdude.options",
+                            description="Default AvrDude options"))
+
+    # Compile flag collectors
+    def flag_validate(flag):
+        if not flag.startswith("-"):
+            raise ValueError("Flags must start with '-'!")
+        return flag
+    for name, descr in common_build_flag_names.items():
+        module.add_collector(
+            StringCollector(name=name, description=descr,
+                            validate=flag_validate if "flags" in name else None))
+
+    return True
+
+
+def build(env):
+    env.outbasepath = "modm/src/"
+    if env["info.git"] != "Disabled":
+        env.collect("gitignore", "modm/src/info_git.c")
+        env.copy("info_git.h")
+    if env["info.build"]:
+        env.collect("gitignore", "modm/src/info_build.c")
+        env.copy("info_build.h")
+
+    # Copy crashcatcher binaries
+    if env.has_module(":crashcatcher"):
+        env.outbasepath = "modm/ext/crashcatcher"
+        env.copy(repopath("ext/adamgreen/crashcatcher/CrashDebug/bins/"), "bins/")
+
+    # Append common search paths to metadata
+    if env.has_collector(":build:path.openocd"):
+        env.collect(":build:path.openocd", "modm/openocd")
+
+    # Add compiler flags to metadata
+    for flag, values in common_compiler_flags("gcc", env[":target"]).items():
+        env.collect(flag, *values)
+
+    # Copy python tools folder
+    platform = env[":target"].identifier["platform"]
+    is_cortex_m = env[":target"].has_driver("core:cortex-m*")
+    tools = {
+        "find_files",
+        "utils",
+    }
+    if env["info.git"] != "Disabled" or env["info.build"]:
+        tools.add("info")
+    if len(env["image.source"]):
+        tools.add("bitmap")
+    if len(env["unittest.source"]):
+        tools.add("unit_test")
+    if is_cortex_m:
+        tools.update({"bmp", "openocd", "crashdebug", "gdb", "backend",
+                      "log", "build_id", "size"})
+        if platform in ["sam"]:
+            tools.update({"bossac"})
+    elif platform in ["avr"]:
+        tools.update({"avrdude"})
+
+    env.outbasepath = "modm/"
+    env.substitutions = {"tools": tools}
+    env.template("../modm_tools/__init__.py.in", "modm_tools/__init__.py")
+    for tool in ("modm_tools/{}.py".format(t) for t in tools):
+        env.copy(localpath("..", tool), tool)
+        if "info" in tool:
+            env.copy(localpath("../modm_tools/info.c.in"), "modm_tools/info.c.in")
+
+def post_build(env):
+    if env.buildlog._buildlog._metadata:
+        env.log.error("'env.add_metadata(key, *values)' is not supported anymore!\n\n"
+              "Hint: Use 'env.collect(key, *values)' instead! To discover available\n"
+              "      collectors, use 'lbuild discover --developer -t modm:build'.")
+
+    # Generate a gitignore for every repository
+    repositories = [p for p in env.buildlog.repositories if os.path.isdir(env.real_outpath(p, basepath="."))]
+    for repo in repositories:
+        gitignore = [env.relative_outpath(ignore, repo) for ignore in
+                     env.collector_values("gitignore", filterfunc=lambda s: s.repository == repo)]
+        if len(gitignore):
+            env.substitutions["gitignore"] = gitignore
+            env.outbasepath = repo
+            env.template("gitignore.in", ".gitignore")
+
+    env.outbasepath = "modm"
+
+    if env[":target"].has_driver("core:cortex-m*"):
+        # prepare custom path
+        openocd_cfg = env.get(":build:openocd.cfg", "")
+        if len(openocd_cfg):
+            env.substitutions["openocd_user_path"] = env.relative_outpath(openocd_cfg)
+
+        has_rtt = env.has_module(":platform:rtt")
+        env.substitutions["has_rtt"] = has_rtt
+        if has_rtt:
+            main_ram = env.query(":platform:cortex-m:linkerscript", {})
+            main_ram = main_ram.get("cont_ram_regions", [{"start": 0x20000000, "size": 4096}])[0]
+            env.substitutions["main_ram"] = main_ram
+            env.substitutions["rtt_channels"] = len(env.get(":platform:rtt:buffer.tx", []))
+        env.template("openocd.cfg.in")
+        env.template("openocd_gdbinit.in")
+        env.template("gdbinit")
+
+
+# ============================ Option Descriptions ============================
+descr_project_name = """# Project Name
+
+The project name defaults to the folder name you're calling lbuild from.
+
+It's used by your build system to name the executable and it may also be passed
+to your application via a string constant or CPP define.
+"""
+
+descr_build_path = """# Build Path
+
+The build path is defaulted to `build/{modm:build:project.name}`.
+
+If you have a lot of embedded projects, you may want to change the build path
+to a *common* directory so that you don't have `build/` folders everywhere.
+Remember to add your build path to your `.gitignore`.
+
+You should use a relative path instead of an absolute one, so that this option
+still works for other developers.
+"""
+
+descr_unittest_source = """# Path to directory containing unittests
+
+When this path is declared, the generated build script will compile **only** the
+unittests, not your application source code!
+You must use separate project configurations for compiling your unittest and
+application!
+"""
+
+descr_image_source = """# Path to directory containing .pbm files"""
+
+descr_info_git = """# Generate git repository state information
+
+- `Info`: generates information about the last commit.
+- `Info+Status`: like `Info` plus git file status.
+"""
+
+descr_info_build = """# Generate build state information"""
+
+descr_openocd_cfg = """# Path to a custom OpenOCD configuration file
+
+If you have a custom configuration file for your target, it will get included
+by the generated `modm/openocd.cfg`.
+
+This is useful for not having to duplicate your config if you have several
+projects using the same target (like small bring-up and test projects).
+
+!!! tip "Do not execute commands by default"
+    When providing your own config file, wrap your specific commands into functions
+    and do not execute them by default. A stray `init` or similar in your script
+    will mess with modm's ability to program and debug a device correctly.
+"""

@@ -1,0 +1,97 @@
+site_name: 'modm barebone embedded library'
+site_description: 'A modular C++20 library generator for barebone embedded programming'
+site_author: 'Niklas Hauser'
+site_url: 'http://modm.io'
+
+# Repository
+repo_name: modm-io/modm
+repo_url: 'https://github.com/modm-io/modm'
+edit_uri: ""
+# dev_addr: 192.168.1.2:8000
+
+copyright: 'Copyright &copy 2009-<script>document.write(new Date().getFullYear())</script> Niklas Hauser & modm authors'
+
+# Turn around for GitHub Hosting in /docs
+docs_dir: 'src'
+site_dir: 'modm.io/docs'
+extra_css: [extra.css]
+
+theme:
+  name: 'material'
+  include_search_page: false
+  search_index_only: true
+  palette:
+    # Light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: cyan
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to dark mode
+    # Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/weather-night
+        name: Switch to light mode
+  # logo: '../images/logo.svg'
+  font:
+    text: 'Ubuntu'
+    code: 'Roboto Mono'
+  language: en
+  feature:
+    tabs: true
+
+extra:
+  social:
+    - icon: fontawesome/brands/github-alt
+      link: https://github.com/modm-io
+    - icon: fontawesome/brands/twitter
+      link: https://twitter.com/modm_embedded
+
+markdown_extensions:
+  - markdown.extensions.admonition
+  - markdown.extensions.codehilite:
+      guess_lang: false
+  - markdown.extensions.def_list
+  - markdown.extensions.footnotes
+  - markdown.extensions.meta
+  - markdown.extensions.toc:
+      permalink: true
+  - pymdownx.arithmatex
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.critic
+  - pymdownx.details
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.magiclink
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.superfences
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+nav:
+  - Home:
+    - Introduction: index.md
+    - How modm works: how-modm-works.md
+    - Who we are: who-we-are.md
+  - Guide:
+    - Installation: guide/installation.md
+    - Explore Examples: guide/examples.md
+    - Discover modm: guide/discover.md
+    - Your Project: guide/custom-project.md
+    # - Testing: guide/testing.md
+  - Reference:
+    - Documentation: reference/documentation.md
+    - Build Systems: reference/build-systems.md
+# moduletable
+    # - Modules:
+    #   - module: module.md
+# /moduletable

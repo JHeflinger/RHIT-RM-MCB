@@ -1,0 +1,47 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2016-2018, Niklas Hauser
+# Copyright (c) 2017, Fabian Greif
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+def init(module):
+    module.name = ":platform:i2c"
+    module.description = "Inter-Integrated Circuit (I²C)"
+
+def prepare(module, options):
+    target = options[":target"]
+    if not target.has_driver("twi:avr"):
+        return False
+
+    if target.partname in ["attiny20", "attiny40", "attiny828", "attiny1634", "attiny441", "attiny841"]:
+        # These ATtiny only implement a TWI slave interface!
+        return False
+
+    module.depends(
+        ":architecture:accessor",
+        ":architecture:i2c",
+        ":architecture:interrupt",
+        ":platform:gpio")
+    return True
+
+def build(env):
+    device = env[":target"]
+    driver = device.get_driver("i2c")
+
+    properties = device.properties
+    properties["target"] = device.identifier
+    properties["driver"] = driver
+
+    env.substitutions = properties
+    env.outbasepath = "modm/src/modm/platform/i2c"
+
+    env.template("i2c.hpp.in")
+    env.template("i2c_master.hpp.in")
+    env.template("i2c_master.cpp.in")

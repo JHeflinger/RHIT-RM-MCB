@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2016-2017, Niklas Hauser
+# Copyright (c) 2017-2018, Fabian Greif
+# Copyright (c) 2018, Christopher Durand
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+
+def init(module):
+    module.name = ":stdc++"
+    module.description = """\
+# C++ Standard Environment
+
+Refines the C++ language to make it easier to use on embedded targets.
+Depending on the module options, the compiler options are appended with either:
+
+- `-fno-exceptions`: no C++ exceptions.
+- `-fno-rtti`: no C++ run-time type information.
+
+or:
+
+- `-fexceptions`: with C++ exceptions.
+- `-frtti`: with C++ run-time type information.
+
+## AVR
+
+A partial port of GCC 8 libstdc++ is provided:
+See https://github.com/modm-io/avr-libstdcpp.
+"""
+
+
+def prepare(module, options):
+    core = options[":target"].get_driver("core")["type"]
+    is_avr = core.startswith("avr")
+    is_cortex_m = core.startswith("cortex-m")
+
+    if is_avr:
+        module.add_option(
+            BooleanOption(
+                name="assert_on_exception", default=True,
+                description="Assert on exception in stdlib. Set to False to save flash."))
+
+    elif is_cortex_m:
+        module.add_option(
+            BooleanOption(
+                name="exceptions", default=False,
+                description=descr_exceptions))
+        module.add_option(
+            BooleanOption(
+                name="rtti", default=False,
+                description=descr_rtti))
+        module.add_option(
+            BooleanOption(
+                name="safe_statics", default=True,
+                description=descr_safe_statics))
+
+    if is_avr or is_cortex_m:
+        module.depends(":architecture:assert", ":stdc")
+
+    return True
+
+
+def build(env):
+    core = env[":target"].get_driver("core")["type"]
+    is_avr = core.startswith("avr")
+    is_cortex_m = core.startswith("cortex-m")
+    if not (is_avr or is_cortex_m):
+        return
+
+    with_exceptions = env.get("exceptions", False)
+    with_threadsafe_statics = env.get("safe_statics", False)
+
+    env.substitutions = {
+        "core": core,
+        "with_exceptions": with_exceptions,
+        "with_threadsafe_statics": with_threadsafe_statics,
+        "with_memory_traits": env.has_module(":architecture:memory"),
+        "is_avr": is_avr,
+    }
+    env.outbasepath = "modm/ext/gcc"
+    env.template("cxxabi.cpp.in")
+    env.template("new_delete.cpp.in")
+
+    if is_avr:
+        env.collect(":build:path.include", "modm/ext/gcc/libstdc++/include")
+        env.copy("libstdc++", ignore=env.ignore_files("*.lb", "*.md", "*.in", "examples"))
+        env.template("assert.cpp.in", "assert.cpp")
+
+    env.collect(":build:cxxflags", "-fuse-cxa-atexit")
+    # Threadsafe statics
+    if not with_threadsafe_statics:
+        env.collect(":build:cxxflags", "-fno-threadsafe-statics")
+    # Compiler options for C++ Exceptions
+    if with_exceptions:
+        env.collect(":build:cxxflags", "-fexceptions", "-funwind-tables")
+    else:
+        env.collect(":build:cxxflags", "-fno-exceptions", "-fno-unwind-tables")
+    # Compiler options for C++ RTTI
+    if env.get("rtti", False):
+        env.collect(":build:cxxflags", "-frtti")
+    else:
+        env.collect(":build:cxxflags", "-fno-rtti")
+
+
+# ============================ Option Descriptions ============================
+
+descr_exceptions = """# C++ Exceptions
+
+Enables the full use of C++ exception handling.
+
+!!! warning "Check your code size"
+    The inclusion of the stack unwind tables will increase your code size quite
+    a bit. Check whether your target has enough memory for this!
+"""
+
+descr_rtti = """# C++ Runtime Type Information
+
+Enables the full use of C++ runtime type information.
+
+!!! warning "Check your code size"
+    The inclusion of the RTTI information will increase your code size quite a
+    bit. Check whether your target has enough memory for this!
+"""
+
+descr_safe_statics = """# C++ Safe Statics Initialization
+
+Enables safe initialization of statics inside functions and interrupts.
+In case of recursive initialization the debug assertion `cxa.guard.recursion`
+is raised.
+
+Further reading on this topic:
+
+- [C++ ABI for the ARM Architecture](https://developer.arm.com/documentation/ihi0041/latest)
+- [Adventures in Systems Programming: C++ Local Statics](https://manishearth.github.io/blog/2015/06/26/adventures-in-systems-programming-c-plus-plus-local-statics/)
+- [C++11 thread-safe static object initialization](https://iamroman.org/blog/2017/04/cpp11-static-init/)
+"""

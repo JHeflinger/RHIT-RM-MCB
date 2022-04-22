@@ -1,0 +1,44 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2016-2018, Niklas Hauser
+# Copyright (c) 2017, Fabian Greif
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+
+def init(module):
+    module.name = ":platform:uart"
+    module.description = "UART and Serial"
+
+
+def prepare(module, options):
+    if not options[":target"].has_driver("uart:hosted"):
+        return False
+
+    module.depends(
+        ":architecture:uart",
+        ":debug",
+        ":io")
+    return True
+
+
+def build(env):
+    # FIXME: boost has several annoying warnings
+    env.collect(":build:ccflags.release", "-Wno-overloaded-virtual")
+    # FIXME: boost/type_traits/detail/config.hpp:85:69: warning: "__clang_major___WORKAROUND_GUARD" is not defined, evaluates to 0
+    env.collect(":build:cppdefines.release", "__clang_major___WORKAROUND_GUARD=4")
+
+    env.collect(":build:library", "boost_system")
+    if env[":target"].identifier.family == "linux":
+        env.collect(":build:library", "boost_thread", "pthread")
+    else:
+        env.collect(":build:library", "boost_thread-mt")
+
+    env.outbasepath = "modm/src/modm/platform/uart"
+    env.copy(".")

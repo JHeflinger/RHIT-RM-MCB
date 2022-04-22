@@ -1,0 +1,84 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2016-2018, Niklas Hauser
+# Copyright (c) 2017, Fabian Greif
+# Copyright (c) 2020, Erik Henriksson
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+import copy
+from collections import defaultdict, OrderedDict
+
+def init(module):
+    module.name = ":platform:gpio"
+    module.description = "General Purpose I/O (GPIO)"
+
+def prepare(module, options):
+    device = options[":target"]
+    if not device.has_driver("gpio:sam*"):
+        return False
+
+    module.depends(
+        ":architecture:gpio",
+        ":cmsis:device",
+        ":math:utils")
+    return True
+
+def validate(env):
+    device = env[":target"]
+    driver = device.get_driver("gpio")
+
+def build(env):
+    bprops = env.substitutions
+    device = env[":target"]
+    driver = device.get_driver("gpio")
+
+    peripherals = OrderedDict()
+    for gpio in driver["gpio"]:
+        signals = []
+        for signal in gpio["signal"]:
+            signal.update({
+                "peripheral": signal["driver"].capitalize(),
+                "function": signal["function"].capitalize(),
+                "name": signal["name"].capitalize(),
+            })
+            # This is a hack for L variant devices, which have a Ac without instance *and*
+            # a Ac with instance 1. Why???
+            if (device.identifier.get("variant") == "l"
+                    and signal["peripheral"] == "Ac"
+                    and (not "instance" in signal or signal["instance"] == "")):
+                signal["instance"] = "0"
+            signal["full_name"] = signal["peripheral"]
+            peripheral = peripherals.setdefault(signal["peripheral"], dict())
+            if "instance" in signal:
+                signal["full_name"] += signal["instance"]
+                signal["instance"] = int(signal["instance"])
+                peripheral.setdefault("instances", set()).add(signal["instance"])
+            signal["full_name"] += signal["name"]
+            p_signal = peripheral.setdefault("signals", dict()).setdefault(signal["name"], set())
+            if "index" in signal:
+                signal["full_name"] += signal["index"]
+                signal["index"] = int(signal["index"])
+                p_signal.add(signal["index"])
+            signals.append(signal)
+        gpio["signal"] = signals
+
+    bprops["peripherals"] = OrderedDict(sorted(peripherals.items()))
+    bprops["functions"] = sorted(list(set(s["function"] for gpio in driver["gpio"] for s in gpio["signal"])))
+
+    bprops["target"] = device.identifier
+
+    env.substitutions = bprops
+    env.outbasepath = "modm/src/modm/platform/gpio"
+
+    bprops["gpios"] = driver["gpio"]
+    env.template("config.hpp.in")
+    env.copy("connector.hpp")
+    env.copy("pin.hpp")
+    env.copy("unused.hpp")

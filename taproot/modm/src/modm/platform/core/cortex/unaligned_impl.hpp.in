@@ -1,0 +1,85 @@
+/*
+ * Copyright (c) 2016, Niklas Hauser
+ *
+ * This file is part of the modm project.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+// ----------------------------------------------------------------------------
+
+#ifndef MODM_PLATFORM_ACCESSOR_UNALIGNED_HPP
+#define MODM_PLATFORM_ACCESSOR_UNALIGNED_HPP
+
+/// @cond
+#include <modm/architecture/utils.hpp>
+
+namespace modm
+{
+
+template< typename T >
+struct
+unaligned_t
+{
+	inline unaligned_t() : data{0} {}
+
+	inline unaligned_t(T value)
+%% if core.startswith("cortex-m0")
+	{ write(value); }
+%% else
+	: data(value) {}
+%% endif
+
+
+	inline operator T() const
+	{
+%% if core.startswith("cortex-m0")
+		T t;
+		read(t);
+		return t;
+%% else
+		return data;
+%% endif
+	}
+
+protected:
+	void inline
+	write(T &value)
+	{
+%% if core.startswith("cortex-m0")
+		// memcpy(data, (uint8_t*)&value, sizeof(T));
+		// manual copy is faster for small sizes
+		for(uint_fast8_t ii=0; ii<sizeof(T); ii++)
+			data[ii] = reinterpret_cast<uint8_t*>(&value)[ii];
+%% else
+		data = value;
+%% endif
+	}
+
+	void inline
+	read(T &value) const
+	{
+%% if core.startswith("cortex-m0")
+		// memcpy((uint8_t*)&value, data, sizeof(T));
+		// manual copy is faster for small sizes
+		for(uint_fast8_t ii=0; ii<sizeof(T); ii++)
+			reinterpret_cast<uint8_t*>(&value)[ii] = data[ii];
+%% else
+		value = data;
+%% endif
+	}
+
+
+protected:
+%% if core.startswith("cortex-m0")
+	uint8_t data[sizeof(T)];
+%% else
+	T data;
+%% endif
+} modm_packed;
+
+}	// namespace modm
+
+/// @endcond
+#endif	// MODM_PLATFORM_ACCESSOR_UNALIGNED_HPP

@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2017-2018, Niklas Hauser
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+def init(module):
+    module.name = ":board"
+    module.description = FileReader("module.md")
+
+def prepare(module, options):
+	# The modm_abandon function uses delay functions
+    module.depends(":architecture:delay", ":architecture:assert")
+
+    # Backwards compatible move, remove this in 2022.
+    module.add_alias(Alias(name="blue-pill", destination="blue-pill-f103",
+                           description="Renamed for clarity."))
+    module.add_alias(Alias(name="black-pill", destination="black-pill-f103",
+                           description="Renamed for clarity."))
+    module.add_alias(Alias(name="mini-f401", destination="black-pill-f401",
+                           description="Renamed for clarity."))
+    module.add_alias(Alias(name="mini-f411", destination="black-pill-f411",
+                           description="Renamed for clarity."))
+    return True
+
+def build(env):
+    env.outbasepath = "modm/src/modm"
+    env.copy("board.hpp")

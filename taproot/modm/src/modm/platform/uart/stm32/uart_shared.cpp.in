@@ -1,0 +1,32 @@
+/*
+ * Copyright (c) 2018, Niklas Hauser
+ *
+ * This file is part of the modm project.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+// ----------------------------------------------------------------------------
+
+#include "../device.hpp"
+
+%% for irq, uarts in uart_shared_irqs_data.items()
+%% for uart in uarts
+%% if "Lpuart" in uart.type
+#include "lpuart_{{ uart["id"] }}.hpp"
+%%else
+#include "uart_{{ uart["id"] }}.hpp"
+%%endif
+%% endfor
+%% endfor
+
+
+%% for irq, uarts in uart_shared_irqs_data.items()
+MODM_ISR({{ irq }})
+{
+%% for uart in uarts
+    modm::platform::{{ uart.name }}::irq();
+%% endfor
+}
+%% endfor

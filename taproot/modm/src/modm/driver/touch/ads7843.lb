@@ -1,0 +1,38 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2018, Niklas Hauser
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+
+def init(module):
+    module.name = ":driver:ads7843"
+    module.description = """\
+# ADS7843 Resistive Touch Controller
+
+The ADS7843 by Texas Instruments is the de-facto standard for cheap
+resistive touch screens.
+
+There are many compatible devices from other manufacturers available,
+such as the UH7843 by Zilltek.
+
+TSC2046, XPT2046 and other *2046 chips seem to be not fully compatible
+with the ADS7843 and have their own driver "modm:driver:touch2046".
+"""
+
+def prepare(module, options):
+    module.depends(
+        ":architecture:delay",
+        ":ui:display")
+    return True
+
+def build(env):
+    env.outbasepath = "modm/src/modm/driver/touch"
+    env.copy("ads7843.hpp")
+    env.copy("ads7843_impl.hpp")

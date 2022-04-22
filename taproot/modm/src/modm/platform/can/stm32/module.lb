@@ -1,0 +1,180 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2016-2018, Niklas Hauser
+# Copyright (c) 2017, Fabian Greif
+# Copyright (c) 2018, Christopher Durand
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+from collections import namedtuple
+from enum import Enum
+
+def load_options(module):
+    module.add_option(
+        NumericOption(
+            name="buffer.tx",
+            description="",
+            minimum=1, maximum=2 ** 16 - 2,
+            default=32))
+    module.add_option(
+        NumericOption(
+            name="buffer.rx",
+            description="",
+            minimum=1, maximum=2 ** 16 - 2,
+            default=32))
+
+
+# Register mappings per family
+# - F0: CAN
+# - F1: CAN1 or CAN{1,2}
+# - F2: CAN{1,2}
+# - F3: CAN
+# - F4: CAN{1,2} or CAN{1,2,3}
+# - F7: CAN1 or CAN{1,2} or CAN{1,2,3}
+# - L0: None
+# - L1: None
+# - L4: CAN1 or CAN{1,2}
+
+CanType = Enum('CanType', 'Single Master Slave')
+CanInfo = namedtuple('CanInfo', 'register type associated_instance')
+
+can_map = {
+    "f0": {0: CanInfo("", CanType.Single, None)},
+    "f1": {
+        0: CanInfo("1", CanType.Single, None),
+        1: CanInfo("1", CanType.Master, 2),
+        2: CanInfo("2", CanType.Slave , 1)
+    },
+    "f2": {
+        1: CanInfo("1", CanType.Master, 2),
+        2: CanInfo("2", CanType.Slave , 1)
+    },
+    "f3": {0: CanInfo("", CanType.Single, None)},
+    "f4": {
+        1: CanInfo("1", CanType.Master, 2),
+        2: CanInfo("2", CanType.Slave , 1),
+        3: CanInfo("3", CanType.Single, None)
+    },
+    "f7": {
+        0: CanInfo("1", CanType.Single, None),
+        1: CanInfo("1", CanType.Master, 2),
+        2: CanInfo("2", CanType.Slave , 1),
+        3: CanInfo("3", CanType.Single, None)
+    },
+    "l0": {},
+    "l1": {},
+    "l4": {
+        0: CanInfo("1", CanType.Single, None),
+        1: CanInfo("1", CanType.Master, 2),
+        2: CanInfo("2", CanType.Slave , 1)
+    },
+}
+
+def get_substitutions(instance, device, env):
+    target = device.identifier
+    driver = device.get_driver("can")
+    instances = map(lambda i: int(i), driver["instance"]) if "instance" in driver else (0,)
+
+    cm = can_map[target["family"]]
+    is_single = (cm[instance].type == CanType.Single) or (cm[instance].associated_instance not in instances)
+    other = cm[instance].associated_instance
+
+    subs = {
+        "id": "" if instance == 0 else str(instance),
+        "own_instance": cm[instance].register,
+        "other_instance": cm[other].register if other in cm else None,
+        "reg": "CAN" + cm[instance].register,
+        "type": cm[instance].type.name if not is_single else CanType.Single.name
+    }
+
+    env.log.debug("Substitutions for {} with instance {}: {}".format(target["family"], instance, str(subs)))
+    return subs
+
+class Instance(Module):
+    def __init__(self, instance):
+        self.instance = instance
+
+    def init(self, module):
+        module.name = str(self.instance)
+        module.description = "Instance {}".format(self.instance)
+
+    def prepare(self, module, options):
+        load_options(module)
+        return True
+
+    def build(self, env):
+        device = env[":target"]
+        driver = device.get_driver("can")
+
+        properties = device.properties
+        properties["target"] = target = device.identifier
+        properties["driver"] = driver
+        properties.update(get_substitutions(self.instance, device, env))
+
+        env.substitutions = properties
+        env.outbasepath = "modm/src/modm/platform/can"
+
+        env.template("can.hpp.in", "can_{}.hpp".format(self.instance))
+        env.template("can.cpp.in", "can_{}.cpp".format(self.instance))
+
+
+def init(module):
+    module.name = ":platform:can"
+    module.description = "Controller Area Network (CAN)"
+
+def prepare(module, options):
+    device = options[":target"]
+    if not device.has_driver("can:stm32"):
+        return False
+
+    module.depends(
+        ":architecture:assert",
+        ":architecture:atomic",
+        ":architecture:can",
+        ":architecture:clock",
+        ":architecture:delay",
+        ":architecture:interrupt",
+        ":cmsis:device",
+        ":debug",
+        ":platform:can.common",
+        ":platform:gpio",
+        ":platform:rcc",
+        ":utils")
+
+    driver = device.get_driver("can")
+    # If there is only one instance of the peripheral it is not numbered and
+    # merged into the generic can module.
+    if "instance" in driver:
+        for instance in listify(driver["instance"]):
+            module.add_submodule(Instance(int(instance)))
+    else:
+        load_options(module)
+
+    return True
+
+def build(env):
+    device = env[":target"]
+    driver = device.get_driver("can")
+
+    properties = device.properties
+    properties["target"] = device.identifier
+    properties["driver"] = driver
+
+    if "instance" not in driver:
+        properties.update(get_substitutions(0, device, env))
+
+    env.substitutions = properties
+    env.outbasepath = "modm/src/modm/platform/can"
+
+    env.template("can_filter.hpp.in")
+    env.template("can_filter.cpp.in")
+
+    if "instance" not in driver:
+        env.template("can.hpp.in")
+        env.template("can.cpp.in")

@@ -1,0 +1,162 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2016-2018, Niklas Hauser
+# Copyright (c) 2017, Fabian Greif
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+class Instance(Module):
+    def __init__(self, instance):
+        self.instance = instance
+
+    def init(self, module):
+        module.name = str(self.instance)
+        module.description = "Instance {}".format(self.instance)
+
+    def prepare(self, module, options):
+        module.depends(":platform:adc")
+        return True
+
+    def build(self, env):
+        device = env[":target"]
+        driver = device.get_driver("adc")
+
+        properties = device.properties
+        properties["target"] = target = device.identifier
+        instance_id = int(self.instance)
+        properties["id"] = instance_id
+
+        if instance_id == 1:
+            if target["family"] == "f3":
+                # 13-14 reserved
+                channels = [1,2,3,4,5,6,7,8,9,10,11,12,15,16,17,18]
+            elif target["family"] == "l4":
+                # ADC1 is connected to 16 external channels + 3 internal channels
+                channels = range(1,17)
+            elif target["family"] == "g4":
+                # ADC1 is connected to 14 external channels + 4 internal channels
+                channels = range(1,15)
+            else:
+                # 11-14 reserved
+                channels = [1,2,3,4,5,6,7,8,9,10,15,16,17,18]
+        elif instance_id == 2:
+            if target["family"] == "f3":
+                # 13-16 reserved
+                channels = [1,2,3,4,5,6,7,8,9,10,11,12,17,18]
+            elif target["family"] == "g4":
+                # ADC2 is connected to 16 external channels + 2 internal channels
+                channels = range(1,17)
+            else:
+                # ADC2 is connected to 16 external channels + 2 internal channels
+                channels = range(1,17)
+        elif instance_id == 3:
+            if target["family"] == "f3":
+                channels = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18]
+            elif target["family"] == "g4":
+                # ADC3 is connected to 15 external channels + 3 internal channels
+                channels = range(1,16)
+            else:
+                # ADC3 is connected to 12 external channels + 4 internal channels
+                channels = [1,2,3,4,6,7,8,9,10,11,12,13]
+        elif instance_id == 4:
+            if target["family"] == "g4":
+                # ADC4 is connected to 16 external channels + 2 internal channels
+                channels = range(1,17)
+            else:
+                # 14-16 reserved
+                channels = [1,2,3,4,5,6,7,8,9,10,11,12,13,17,18]
+        elif instance_id == 5:
+            if target["family"] == "g4":
+                # ADC5 is connected to 13 external channels + 5 internal channels
+                channels = range(1,14)
+            else:
+                raise NotImplementedError
+        properties["channels"] = sorted(channels)
+
+        if target["family"] == "f3":
+            properties["ahb"] = "AHB"
+            if len(driver["instance"]) == 1:
+                properties["adc_ccr"] = "ADC1_CCR"
+                properties["adc_pre"] = "ADC1PRES"
+                properties["id_common"] = "1"
+                properties["id_common_u"] = "1_COMMON"
+            elif instance_id in [1,2]:
+                properties["adc_ccr"] = "ADC12_CCR"
+                properties["adc_pre"] = "ADCPRE12"
+                properties["id_common"] = "12"
+                properties["id_common_u"] = "1_2_COMMON"
+            elif instance_id in [3,4]:
+                properties["adc_ccr"] = "ADC34_CCR"
+                properties["adc_pre"] = "ADCPRE34"
+                properties["id_common"] = "34"
+                properties["id_common_u"] = "3_4_COMMON"
+            properties["clock_mux"] = False
+        elif target["family"] == "l4":
+            properties["adc_ccr"] = "ADC_CCR"
+            if len(driver["instance"]) == 1 and "q5a" not in target.string:
+                properties["id_common"] = "1"
+                properties["id_common_u"] = "1_COMMON"
+            elif len(driver["instance"]) == 2 or "q5a" in target.string:
+                properties["id_common"] = "12"
+                properties["id_common_u"] = "12_COMMON"
+            else:
+                properties["id_common"] = "123"
+                properties["id_common_u"] = "123_COMMON"
+            properties["clock_mux"] = (target["name"] not in ("12", "22"))
+        elif target["family"] == "g4":
+            properties["ahb"] = "AHB2"
+            properties["adc_ccr"] = "ADC_CCR"
+            if instance_id in [1, 2]:
+                properties["id_common"] = "12"
+                properties["id_common_u"] = "12_COMMON"
+            else:
+                properties["id_common"] = "345"
+                properties["id_common_u"] = "345_COMMON"
+            properties["clock_mux"] = True
+        else:
+            raise NotImplementedError
+
+        env.substitutions = properties
+        env.outbasepath = "modm/src/modm/platform/adc"
+
+        env.template("adc.hpp.in", "adc_{}.hpp".format(self.instance))
+        env.template("adc_impl.hpp.in", "adc_{}_impl.hpp".format(self.instance))
+
+
+def init(module):
+    module.name = ":platform:adc"
+    module.description = "Analog-to-Digital Converter (ADC)"
+
+def prepare(module, options):
+    device = options[":target"]
+    if not device.has_driver("adc:stm32-f3"):
+        return False
+
+    module.depends(
+        ":architecture:delay",
+        ":architecture:register",
+        ":cmsis:device",
+        ":platform:gpio",
+        ":platform:rcc")
+
+    for instance in listify(device.get_driver("adc")["instance"]):
+        module.add_submodule(Instance(int(instance)))
+
+    return True
+
+def build(env):
+    device = env[":target"]
+    driver = device.get_driver("adc")
+
+    properties = device.properties
+    properties["target"] = device.identifier
+    properties["driver"] = driver
+
+    env.substitutions = properties
+    env.outbasepath = "modm/src/modm/platform/adc"

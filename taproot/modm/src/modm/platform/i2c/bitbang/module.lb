@@ -1,0 +1,33 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2016-2018, Niklas Hauser
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+def init(module):
+    module.name = ":platform:i2c.bitbang"
+    module.description = "Software Inter-Integrated Circuit (I²C)"
+
+def prepare(module, options):
+    if not options[":target"].has_driver("gpio"):
+        return False
+
+    module.depends(
+        ":architecture:delay",
+        ":architecture:gpio",
+        ":architecture:i2c",
+        ":platform:gpio")
+    return True
+
+def build(env):
+    env.substitutions = {"target": env[":target"].identifier}
+    env.outbasepath = "modm/src/modm/platform/i2c"
+
+    env.template("bitbang_i2c_master.hpp.in")
+    env.copy("bitbang_i2c_master_impl.hpp")

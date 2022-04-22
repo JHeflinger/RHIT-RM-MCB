@@ -1,0 +1,124 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2017-2018, Fabian Greif
+# Copyright (c) 2017-2018, Niklas Hauser
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+import os
+import re
+import sys
+import json
+import fnmatch
+import traceback
+import subprocess
+
+from lxml import etree
+from pathlib import Path
+from collections import defaultdict, OrderedDict
+import lbuild
+
+def _name(name, replace):
+    new_name = ""
+    for c in name:
+        if c.isalpha() or c.isnumeric():
+            new_name += c
+        else:
+            new_name += replace
+    return new_name
+
+def url_name(name):
+    return _name(name, "-")
+
+def ref_name(name):
+    return _name(name, "_")
+
+def node_name(name):
+    return name.replace(":", ":\n")
+
+
+def doxify(content):
+    content = re.sub(r"```(.+)\n", r"~~~{.\1}\n", content)
+    content = re.sub(r"```", "~~~", content)
+    content = re.sub(r"!!! danger", "@warning", content)
+    content = re.sub(r"!!! tip", "@note", content)
+    content = re.sub(r"!!! info", "@note", content)
+    content = re.sub(r"!!! *", "@", content)
+    return content
+
+def split_description(descr):
+    lines = str(descr).strip(" \n").splitlines() + [""]
+    title = lines[0].replace("#", "").strip()
+    return title, "\n".join(lines[1:]).strip(" \n")
+
+def extract(text, key):
+    return re.search(r"# {0}\n(.*?)\n# /{0}".format(key), text, flags=re.DOTALL | re.MULTILINE).group(1)
+
+def replace(text, key, content):
+    return re.sub(r"# {0}.*?# /{0}".format(key), "# {0}\n{1}\n# /{0}".format(key, content), text, flags=re.DOTALL | re.MULTILINE)
+
+# -----------------------------------------------------------------------------
+def init(module):
+    module.name = ":docs"
+    module.description = FileReader("module.md")
+
+def prepare(module, options):
+    module.add_option(BooleanOption(name="enable_qch",
+                                    description="Generate the Doxygen docs as Qt Help format (qch)",
+                                    default=False))
+    return True
+
+def build(env):
+    env.outbasepath = "modm/docs"
+    env.substitutions = {
+        "xml": False,
+        "qch": env["enable_qch"],
+        "device": str(env[":target"].identifier).upper(),
+        "with_tests": env.has_module("modm-test:test")
+    }
+    env.template("doxyfile.cfg.in")
+    env.template("doxypress.json.in")
+    env.copy("footer.html")
+    env.copy("custom.css")
+    env.copy("custom_dark_theme.css")
+    env.copy(repopath("README.md"), "README.md")
+
+def post_build(env, buildlog):
+    lbuild_plain = lbuild.format.PLAIN
+    lbuild.format.PLAIN = True
+    # FIXME: Get me a proper API for this
+    omodules = list(env._env.modules._node.root.all_modules())
+    omodules.sort(key=lambda m: m.fullname)
+    modules = []
+
+    env.log.debug("Parsing module documentation...")
+    for m in omodules:
+        title, descr = split_description(m._description)
+        mprops = {"name": m.fullname,
+                  "title": title,
+                  "description": descr,
+                  "pref": ref_name(m.parent.fullname),
+                  "ref": ref_name(m.fullname),
+                  "options": []}
+        for o in m.options:
+            title, descr = split_description(o._description)
+            value = lbuild.format.format_option_value_description(o, single_line=False)
+            mprops["options"].append({
+                "name": o.fullname,
+                "title": title,
+                "description": descr,
+                "value": value
+            })
+        modules.append(mprops)
+
+    env.log.debug("Generating doxygen group documentation...")
+    env.outbasepath = "modm/docs/dox"
+    for m in modules:
+        env.substitutions = {"module": m}
+        env.template("group.dox.in", "{}.dox".format(url_name(m["name"])), filters={"doxify": doxify})

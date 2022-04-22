@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2016-2018, Niklas Hauser
+# Copyright (c) 2017, Fabian Greif
+# Copyright (c) 2020, Sascha Schade
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+class Amnb(Module):
+    def init(self, module):
+        module.name = "amnb"
+
+    def prepare(self, module, options):
+        module.depends("modm:communication:amnb", ":mock:clock", ":mock:shared_medium")
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm-test/src/modm-test/communication"
+        env.copy("amnb")
+
+
+class Sab(Module):
+    def init(self, module):
+        module.name = "sab"
+
+    def prepare(self, module, options):
+        module.depends("modm:communication:sab", ":mock:io.device")
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm-test/src/modm-test/communication"
+        env.copy("sab")
+
+
+class Xpcc(Module):
+    def init(self, module):
+        module.name = "xpcc"
+
+    def prepare(self, module, options):
+        module.depends(
+            "modm:communication:xpcc",
+            ":mock:clock",
+            ":mock:can_driver",
+        )
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm-test/src/modm-test/communication"
+        env.copy("xpcc")
+
+
+def init(module):
+    module.name = ":test:communication"
+
+def prepare(module, options):
+    module.add_submodule(Amnb())
+    module.add_submodule(Sab())
+    module.add_submodule(Xpcc())
+    return True
+
+def build(env):
+    pass

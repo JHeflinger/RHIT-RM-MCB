@@ -1,0 +1,521 @@
+/*
+ * Copyright (c) 2018, Raphael Lehmann
+ *
+ * This file is part of the modm project.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+// ----------------------------------------------------------------------------
+
+#ifndef MODM_STM32_COMP{{ id }}_HPP
+#define MODM_STM32_COMP{{ id }}_HPP
+
+#include "base.hpp"
+
+#include <modm/platform/gpio/connector.hpp>
+
+namespace modm::platform
+{
+	/**
+	 * @brief		Comparator Class for STM32
+	 *
+	 * @internal
+	 * @ingroup		modm_platform_comp modm_platform_comp_{{id}}
+	 */
+	class Comp{{ id }} : public CompBase
+	{
+	public:
+		enum class
+		InvertingInput
+		{
+			{% if target.family == "f3" -%}
+			Vref1Div4		= 0b000 << 4,
+			Vref1Div2		= 0b001 << 4,
+			Vref3Div4		= 0b010 << 4,
+			Vref			= 0b011 << 4,
+			Dac1Channel1	= 0b100 << 4,
+			GpioA4			= 0b100 << 4,
+			Dac1Channel2	= 0b101 << 4,
+			GpioA5			= 0b101 << 4,
+			{% if id > 1 -%}
+			// and more inputs (different for every instance) ...
+			Config0b1001	= (0b1 << 22) | (0b001 << 4),
+			Config0b1010	= (0b1 << 22) | (0b010 << 4),
+			Config0b1011	= (0b1 << 22) | (0b011 << 4),
+			Config0b1100	= (0b1 << 22) | (0b100 << 4),
+			Config0b1101	= (0b1 << 22) | (0b101 << 4),
+			Config0b1110	= (0b1 << 22) | (0b110 << 4),
+			Config0b1111	= (0b1 << 22) | (0b111 << 4),
+			{% endif -%}
+			{% elif target.family == "l4" -%}
+			Vref1Div4		= (0b000 << 4) | (0b11 << 22),
+			Vref1Div2		= (0b001 << 4) | (0b11 << 22),
+			Vref3Div4		= (0b010 << 4) | (0b11 << 22),
+			Vref			= (0b011 << 4) | (0b10 << 22),
+			DacChannel1		= 0b100 << 4,
+			DacChannel2		= 0b101 << 4,
+			{% if id == 1 -%}
+			GpioB1			= 0b110 << 4,
+			GpioC4			= (0b111 << 4) | (0b00 << 25),
+			GpioA0			= (0b111 << 4) | (0b01 << 25),
+			{% elif id == 2 -%}
+			GpioB3			= 0b110 << 4,
+			GpioB7			= (0b111 << 4) | (0b00 << 25),
+			GpioA2			= (0b111 << 4) | (0b01 << 25),
+			{% endif -%}
+			GpioA4			= (0b111 << 4) | (0b10 << 25),
+			GpioA5			= (0b111 << 4) | (0b11 << 25),
+			{% elif target.family == "g4" -%}
+			Vref1Div4		= (0b000 << 4) | (0b11 << 22),
+			Vref1Div2		= (0b001 << 4) | (0b11 << 22),
+			Vref3Div4		= (0b010 << 4) | (0b11 << 22),
+			Vref			= (0b011 << 4) | (0b10 << 22),
+			{% if id == 1 -%}
+			Dac3Ch1			= 0b100 << 4,
+			Dac1Ch1			= 0b101 << 4,
+			GpioA4			= 0b110 << 4,
+			GpioA0			= 0b111 << 4,
+			{% elif id == 2 -%}
+			Dac3Ch2			= 0b100 << 4,
+			Dac1Ch2			= 0b101 << 4,
+			GpioA5			= 0b110 << 4,
+			GpioA2			= 0b111 << 4,
+			{% elif id == 3 -%}
+			Dac3Ch1			= 0b100 << 4,
+			Dac1Ch1			= 0b101 << 4,
+			GpioF1			= 0b110 << 4,
+			GpioC0			= 0b111 << 4,
+			{% elif id == 4 -%}
+			Dac3Ch2			= 0b100 << 4,
+			Dac1Ch1			= 0b101 << 4,
+			GpioE8			= 0b110 << 4,
+			GpioB2			= 0b111 << 4,
+			{% elif id == 5 -%}
+			Dac4Ch1			= 0b100 << 4,
+			Dac1Ch2			= 0b101 << 4,
+			GpioB10			= 0b110 << 4,
+			GpioD13			= 0b111 << 4,
+			{% elif id == 6 -%}
+			Dac4Ch2			= 0b100 << 4,
+			Dac2Ch1			= 0b101 << 4,
+			GpioD10			= 0b110 << 4,
+			GpioB15			= 0b111 << 4,
+			{% elif id == 7 -%}
+			Dac4Ch1			= 0b100 << 4,
+			Dac2Ch1			= 0b101 << 4,
+			GpioD15			= 0b110 << 4,
+			GpioB12			= 0b111 << 4,
+			{% endif -%}
+			{% endif -%}
+		};
+	protected:
+		{% if target.family == "f3" -%}
+		static constexpr uint32_t InvertingInputMask = (0b111 << 4) | (0b1 << 22);
+		{% elif target.family in ["l4"] -%}
+		static constexpr uint32_t InvertingInputMask = (0b111 << 4) | (0b11 << 22) | (0b11 << 25);
+		{% elif target.family in ["g4"] -%}
+		static constexpr uint32_t InvertingInputMask = (0b1111 << 4) | (0b11 << 22);
+		{% endif -%}
+
+	public:
+		enum class
+		NonInvertingInput
+		{
+			{% if target.family == "f3" -%}
+			// TODO: Gpio names (with data from parsed datasheets
+			BitUnset	= 0b0 << 7,
+			BitSet		= 0b1 << 7,
+			{% elif target.family in ["l4"] -%}
+			{% if id == 1 -%}
+			GpioC5		= 0b00 << 7,
+			GpioB2		= 0b01 << 7,
+			GpioA1		= 0b10 << 7,
+			{% elif id == 2 -%}
+			GpioB4		= 0b00 << 7,
+			GpioB6		= 0b01 << 7,
+			GpioA3		= 0b10 << 7,
+			{% endif -%}
+			{% elif target.family in ["g4"] -%}
+			{% if id == 1 -%}
+			GpioA1			= 0b0 << 8,
+			GpioB1			= 0b1 << 8,
+			{% elif id == 2 -%}
+			GpioA7			= 0b0 << 8,
+			GpioA3			= 0b1 << 8,
+			{% elif id == 3 -%}
+			GpioA0			= 0b0 << 8,
+			GpioC1			= 0b1 << 8,
+			{% elif id == 4 -%}
+			GpioB0			= 0b0 << 8,
+			GpioE7			= 0b1 << 8,
+			{% elif id == 5 -%}
+			GpioB13			= 0b0 << 8,
+			GpioD12			= 0b1 << 8,
+			{% elif id == 6 -%}
+			GpioB11			= 0b0 << 8,
+			GpioD11			= 0b1 << 8,
+			{% elif id == 7 -%}
+			GpioB14			= 0b0 << 8,
+			GpioD14			= 0b1 << 8,
+			{% endif -%}
+			{% endif -%}
+		};
+	protected:
+		{% if target.family == "f3" -%}
+		static constexpr uint32_t NonInvertingInputMask = 0b1 << 7;
+		{% elif target.family in ["g4"] -%}
+		static constexpr uint32_t NonInvertingInputMask = 0b1 << 8;
+		{% elif target.family in ["l4"] -%}
+		static constexpr uint32_t NonInvertingInputMask = 0b11 << 7;
+		{% endif -%}
+
+	{% if target.family == "f3" -%}
+	public:
+		enum class
+		Output
+		{
+			// same in every comparator instance:
+			NoSelection		= 0b0000 << 10,
+			Tim1BkIn		= 0b0001 << 10,
+			Tim1BkIn2		= 0b0010 << 10,
+			Tim8BkIn		= 0b0011 << 10,
+			Tim8BkIn2		= 0b0100 << 10,
+			Tim1Or8BkIn2	= 0b0101 << 10,
+			// different for every instance:
+			// TODO: output names (with data from parsed datasheets
+			Config0b0110	= 0b0110 << 10,
+			Config0b0111	= 0b0111 << 10,
+			Config0b1000	= 0b1000 << 10,
+			Config0b1001	= 0b1001 << 10,
+			Config0b1010	= 0b1010 << 10,
+			Config0b1011	= 0b1011 << 10,
+			Config0b1100	= 0b1100 << 10,
+			Config0b1101	= 0b1101 << 10,
+			Config0b1110	= 0b1110 << 10,
+			Config0b1111	= 0b1111 << 10,
+		};
+	protected:
+		static constexpr uint32_t OutputMask = 0b1111 << 10;
+	{% endif -%}
+
+	public:
+		enum class
+		BlankingSource
+		{
+			NoBlanking		= 0b000 << 18,
+
+			{% for k, v in blanking_source.items() -%}
+			{% if k is not none and v is not none -%}
+			{{ v }}			= 0{{ k }} << {{ csr }}BLANKING_Pos,
+			{% endif -%}
+			{% endfor -%}
+		};
+	protected:
+		static constexpr uint32_t BlankingSourceMask = {{ csr }}BLANKING_Msk;
+
+	public:
+		/**
+		 * Initialize and enable the comparator.
+		 *
+		 * Enables the comperator and sets important values.
+		 *
+		 * Do NOT set lock = true if you want to be able to set other values
+		 * later.
+		 */
+		static inline void
+		initialize(
+					InvertingInput n_in,
+				{% if (target.family == "f3" and id > 1) or target.family in ["l4", "g4"] -%}
+					NonInvertingInput p_in,
+				{% endif -%}
+				{% if target.family == "f3" -%}
+					Output out = Output::NoSelection,
+				{% endif -%}
+					Hysteresis hyst = Hysteresis::NoHysteresis,
+				{% if driver.type not in ["stm32-tsmc90_g4_rockfish_cube"] -%}
+					Mode mode = Mode::HighSpeed,
+				{% endif -%}
+					Polarity pol = Polarity::NonInverted,
+					bool lock_comp = false)
+		{
+			setInvertingInput(n_in);
+		{% if (target.family == "f3" and id > 1) or target.family in ["l4", "g4"] -%}
+			setNonInvertingInput(p_in);
+		{% endif -%}
+		{% if target.family == "f3" -%}
+			setOutputSelection(out);
+		{% endif -%}
+			setHysteresis(hyst);
+		{% if driver.type not in ["stm32-tsmc90_g4_rockfish_cube"] -%}
+			setMode(mode);
+		{% endif -%}
+			setPolarity(pol);
+			setEnabled(true);	// enable comparator
+			if(lock_comp) {
+				lock();
+			}
+		}
+
+		/**
+		 * \brief	Enable/Disable the comparator.
+		 */
+		static inline void
+		setEnabled(bool enabled)
+		{
+			if(enabled)
+				COMP{{ id }}->CSR |= {{ csr }}EN;
+			else
+				COMP{{ id }}->CSR &= ~{{ csr }}EN;
+		}
+
+		/**
+		 * \brief	Returns whether the comparator is enabled.
+		 */
+		static inline bool
+		isEnabled()
+		{
+			return COMP{{ id }}->CSR & {{ csr }}EN;
+		}
+
+	{% if false -%} // SW1 bit is not available on F303, F328, F358 and F398
+		/**
+		 * \brief Open/Close Switch between comp and DAC out I/O.
+		 *
+		 * This bit closes a switch between comp 1 non inverting input (PA0)
+		 * and DAC out pin (PA4)
+		 */
+		static inline void
+		setSwitch1(bool closed)
+		{
+			if(closed)
+				COMP{{ id }}->CSR |= {{ csr }}SW1;
+			else
+				COMP{{ id }}->CSR &= ~{{ csr }}SW1;
+		}
+
+		/**
+		 * \brief Returns true if Switch is closed.
+		 *
+		 * This bit closes a switch between comp 1 non inverting input (PA0)
+		 * and DAC out pin (PA4)
+		 */
+		static inline bool
+		isSwitch1Closed()
+		{
+			return COMP{{ id }}->CSR & {{ csr }}SW1;
+		}
+	{% endif -%}
+
+	{% if driver.type not in ["stm32-tsmc90_g4_rockfish_cube"] -%}
+		/**
+		 * \brief	Sets the mode that determins speed/power consumption.
+		 *
+		 * This setting is also called "output mode".
+		 */
+		static inline void
+		setMode(Mode mode)
+		{
+			COMP{{ id }}->CSR = (COMP{{ id }}->CSR & ~ModeMask) | static_cast<uint32_t>(mode);
+		}
+
+		/**
+		 * \brief	Sets the mode that determins speed/power consumption.
+		 *
+		 * This setting is also called "output mode".
+		 */
+		static inline Mode
+		getMode()
+		{
+			return static_cast<Mode>(COMP{{ id }}->CSR & ModeMask);
+		}
+	{% endif -%}
+
+		/**
+		 * \brief	Selects what the inverting input is connected to.
+		 */
+		static inline void
+		setInvertingInput(InvertingInput input)
+		{
+			COMP{{ id }}->CSR = (COMP{{ id }}->CSR & ~InvertingInputMask) | static_cast<uint32_t>(input);
+		}
+
+		/**.
+		 * \brief	Returns what is connected to the inverting input.
+		 */
+		static inline InvertingInput
+		getInvertingInput()
+		{
+			return static_cast<InvertingInput>(COMP{{ id }}->CSR & InvertingInputMask);
+		}
+
+	{% if (target.family == "f3" and id > 1) or target.family in ["l4", "g4"] -%}
+		/**
+		 * \brief	Selects what the non-inverting input is connected to.
+		 */
+		static inline void
+		setNonInvertingInput(NonInvertingInput input)
+		{
+			COMP{{ id }}->CSR = (COMP{{ id }}->CSR & ~NonInvertingInputMask) | static_cast<uint32_t>(input);
+		}
+
+		/**.
+		 * \brief	Returns what is connected to the non-inverting input.
+		 */
+		static inline NonInvertingInput
+		getNonInvertingInput()
+		{
+			return static_cast<NonInvertingInput>(COMP{{ id }}->CSR & NonInvertingInputMask);
+		}
+	{% endif -%}
+
+	{% if (target.family == "f3" and (id == 2 or id == 4 or id == 6)) or (target.family == "l4" and id == 2) -%}
+		{% if target.family == "f3" -%}
+		{% set windowmode = "WNDWEN" %}
+		{% elif target.family == "l4" -%}
+		{% set windowmode = "WINMODE" %}
+		{% endif -%}
+		/**
+		 * \brief Enable/Disable window mode for COMP{{ (id-1) }}/{{ id }}.
+		 */
+		static inline void
+		setWindowMode(bool enabled)
+		{
+			if(enabled)
+				COMP{{ id }}->CSR |= {{ csr }}{{ windowmode }};
+			else
+				COMP{{ id }}->CSR &= ~{{ csr }}{{ windowmode }};
+		}
+
+		/**
+		 * \brief Returns true if win mode for COMP{{ (id-1) }}/{{ id }} on.
+		 */
+		static inline bool
+		isWindowModeEnabled()
+		{
+			return COMP{{ id }}->CSR & {{ csr }}{{ windowmode }};
+		}
+	{% endif -%}
+
+	{% if target.family == "f3" -%}
+		/**
+		 * \brief	Selects what the output is connected to.
+		 */
+		static inline void
+		setOutputSelection(Output output)
+		{
+			COMP{{ id }}->CSR = (COMP{{ id }}->CSR & ~OutputMask) | static_cast<uint32_t>(output);
+		}
+
+		/**.
+		 * \brief	Returns what is connected to the output.
+		 */
+		static inline Output
+		getOutputSelection()
+		{
+			return static_cast<Output>
+				(COMP{{ id }}->CSR & OutputMask);
+		}
+	{% endif -%}
+
+		/**
+		 * \brief	Selects output polarity.
+		 */
+		static inline void
+		setPolarity(Polarity pol)
+		{
+			COMP{{ id }}->CSR = (COMP{{ id }}->CSR & ~PolarityMask) | static_cast<uint32_t>(pol);
+		}
+
+		/**.
+		 * \brief	Returns output polarity.
+		 */
+		static inline Polarity
+		getPolarity()
+		{
+			return static_cast<Polarity>(COMP{{ id }}->CSR & PolarityMask);
+		}
+
+		/**
+		 * \brief	Selects the hysteresis.
+		 */
+		static inline void
+		setHysteresis(Hysteresis hyst)
+		{
+			COMP{{ id }}->CSR = (COMP{{ id }}->CSR & ~HysteresisMask) | static_cast<uint32_t>(hyst);
+		}
+
+		/**.
+		 * \brief	Returns the hysteresis.
+		 */
+		static inline Hysteresis
+		getHysteresis()
+		{
+			return static_cast<Hysteresis> (COMP{{ id }}->CSR & HysteresisMask);
+		}
+
+		/**
+		 * \brief	Selects the blanking source.
+		 */
+		static inline void
+		setBlankingSource(BlankingSource blanking)
+		{
+			COMP{{ id }}->CSR |= (COMP{{ id }}->CSR & ~BlankingSourceMask) | static_cast<uint32_t>(blanking);
+		}
+
+		/**.
+		 * \brief	Returns the blanking source.
+		 */
+		static inline BlankingSource
+		getBlankingSource()
+		{
+			return static_cast<BlankingSource>(COMP{{ id }}->CSR & BlankingSourceMask);
+		}
+
+		/**
+		 * \brief	Returns the current Comparator output.
+		 */
+		static inline bool
+		getOutput()
+		{
+		{% if target.family == "f3" -%}
+			return COMP{{ id }}->CSR & {{ csr }}OUT;
+		{% elif target.family in ["l4", "g4"] -%}
+			return COMP{{ id }}->CSR & {{ csr }}VALUE;
+		{% endif -%}
+		}
+
+		/**
+		 * \brief	Locks the comparator.
+		 *
+		 * Comparator can only be unlocked by a system reset.
+		 */
+		static inline void
+		lock(void)
+		{
+			COMP{{ id }}->CSR |= {{ csr }}LOCK;
+		}
+
+		/**
+		 * \brief	Returns true if the comparator is locked.
+		 */
+		static inline bool
+		isLocked(void)
+		{
+			return COMP{{ id }}->CSR & {{ csr }}LOCK;
+		}
+
+	public:
+		// start inherited documentation
+		template< template<Peripheral _> class... Signals >
+		static void
+		connect()
+		{
+			using Connector = GpioConnector<Peripheral::Comp{{ id }}, Signals...>;
+			Connector::connect();
+		}
+	};
+}
+
+#endif	//  MODM_STM32_COMP{{ id }}_HPP

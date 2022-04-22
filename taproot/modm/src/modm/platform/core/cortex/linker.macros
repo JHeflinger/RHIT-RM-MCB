@@ -1,0 +1,363 @@
+%# This File includes platform independent macros for Cortex-M linkerscripts
+%% macro copyright()
+/*
+ * Copyright (c) 2011-2012, 2019, Fabian Greif
+ * Copyright (c) 2012, 2015-2021, Niklas Hauser
+ * Copyright (c) 2013, Sascha Schade
+ * Copyright (c) 2013, 2015, Kevin Läufer
+ *
+ * This file is part of the modm project.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ * ------------------------------------------------------------------------- */
+%% endmacro
+
+%% macro prefix()
+MEMORY
+{
+%% for memory in (memories + cont_ram_regions)
+	{{ memory.name | upper }} ({{ memory.access }}) : ORIGIN = {{ "0x%08X" % memory.start }}, LENGTH = {{ memory.size }}
+%% endfor
+{{ linkerscript_memory | indent(first=True) }}
+}
+
+%% for memory in memories
+__{{memory.name}}_start = ORIGIN({{memory.name|upper}});
+__{{memory.name}}_end = ORIGIN({{memory.name|upper}}) + LENGTH({{memory.name|upper}});
+%% endfor
+
+OUTPUT_FORMAT("elf32-littlearm")
+OUTPUT_ARCH(arm)
+ENTRY(Reset_Handler)
+
+/* the handler stack is used for main program as well as interrupts */
+MAIN_STACK_SIZE    = {{ options[":platform:cortex-m:main_stack_size"] }};
+PROCESS_STACK_SIZE = {{ process_stack_size }};
+TOTAL_STACK_SIZE   = MAIN_STACK_SIZE + PROCESS_STACK_SIZE;
+%% endmacro
+
+
+%% macro section_vector_rom(memory)
+	.text :
+	{
+		__vector_table_rom_start = .;
+		__vector_table_ram_load = .;
+		/* Initial stack address, Reset and NMI handler */
+		KEEP(*(.vector_rom))
+	} >{{memory}}
+%% endmacro
+
+
+%% macro section_vector_ram(memory)
+	.vectors (NOLOAD) :
+	{
+		__vector_table_ram_start = .;
+		/* Vector table in RAM, only if remapped */
+		KEEP(*(.vector_ram))
+		. = ALIGN(4);
+		__vector_table_ram_end = .;
+	} >{{memory}}
+%% endmacro
+
+
+%% macro section_stack(memory, start=None)
+	.stack (NOLOAD) :
+	{
+	%% if start != None
+		. = {{ start }};
+	%% endif
+		__stack_start = .;
+
+		. += MAIN_STACK_SIZE;
+		. = ALIGN(8);
+		__main_stack_top = .;
+
+		. += PROCESS_STACK_SIZE;
+		. = ALIGN(8);
+		__process_stack_top = .;
+
+		__stack_end = .;
+	} >{{memory}}
+%% endmacro
+
+
+%% macro section_tables(memory, copy, zero, heap)
+%% if vector_table_location == "ram"
+	%% do copy.insert(0, "vector_table_ram")
+%% endif
+	.rodata :
+	{
+		. = ALIGN(4);
+		__table_zero_intern_start = .;
+		LONG(__bss_start)
+		LONG(__bss_end)
+	%% for name in zero
+		LONG(__{{name}}_start)
+		LONG(__{{name}}_end)
+	%% endfor
+		__table_zero_intern_end = .;
+
+		__table_copy_intern_start = .;
+		LONG(__data_load)
+		LONG(__data_start)
+		LONG(__data_end)
+	%% for name in copy
+		LONG(__{{name}}_load)
+		LONG(__{{name}}_start)
+		LONG(__{{name}}_end)
+	%% endfor
+		__table_copy_intern_end = .;
+
+		__table_zero_extern_start = .;
+{{ linkerscript_extern_zero | indent(8, first=True) }}
+		__table_zero_extern_end = .;
+		__table_copy_extern_start = .;
+{{ linkerscript_extern_copy | indent(8, first=True) }}
+		__table_copy_extern_end = .;
+
+		/* SRAM properties bit mask (16-bit):
+		 *
+		 * - 0x0001: accessible via S-Bus
+		 * - 0x0002: accessible via D-Bus
+		 * - 0x0004: accessible via I-Bus
+		 * - 0x0008: accessible via DMA
+		 * - 0x0010: accessible via DMA2D
+		 *
+		 * - 0x1FE0: reserved
+		 *
+		 * - 0x2000: Fast memory (Core- or Tightly-Coupled)
+		 * - 0x4000: non-volatile (or battery backed) memory
+		 * - 0x8000: external memory
+		 */
+		__table_heap_start = .;
+	%% for section in heap
+		LONG({{ section.prop }})
+		LONG(__{{ section.name }}_start)
+		LONG(__{{ section.name }}_end)
+	%% endfor
+{{ linkerscript_extern_heap | indent(8, first=True) }}
+		__table_heap_end = .;
+
+	} >{{memory}}
+%% endmacro
+
+%% macro section(memory, name, sections=[])
+	.{{name}} :
+	{
+		. = ALIGN(4);
+		__{{name}}_load = LOADADDR(.{{name}});
+		__{{name}}_start = .;
+		*(.{{name}} .{{name}}.*)
+		. = ALIGN(4);
+	} >{{memory}}
+
+	%% for section in sections
+	.{{section}} :
+	{
+		__{{section}}_start = .;
+		*(.{{section}} .{{section}}.*)
+		. = ALIGN(4);
+		__{{section}}_end = .;
+	} >{{memory}}
+	%% endfor
+	__{{name}}_end = .;
+%% endmacro
+
+
+%% macro section_heap(memory, name, placement=None, sections=[])
+	%% for section in sections
+	.{{section}} (NOLOAD) :
+	{
+		. = ALIGN(4);
+		__{{section}}_start = .;
+		*(.{{section}} .{{section}}.*)
+		. = ALIGN(4);
+		__{{section}}_end = .;
+	} >{{ placement if placement else memory }}
+	%% endfor
+
+	.{{name}} (NOLOAD) :
+	{
+		. = ALIGN(4);
+		__{{name}}_start = .;
+		. = MAX(ABSOLUTE(.), ORIGIN({{memory}}) + LENGTH({{memory}}));
+		__{{name}}_end = .;
+	} >{{ placement if placement else memory }}
+%% endmacro
+
+
+%% macro all_heap_sections(table_copy, table_zero, table_heap)
+	%% for cont_region in cont_ram_regions
+		%% for region in cont_region.contains
+			%% if region.index
+{{ section(cont_region.name|upper + " AT >FLASH", "data_"+region.name) }}
+				%% do table_copy.append("data_"+region.name)
+				%% do table_zero.append("bss_"+region.name)
+			%% endif
+
+{{ section_heap(region.name|upper, "heap_"+region.name, cont_region.name|upper,
+				sections=(["bss_"+region.name] if region.index else []) + ["noinit_"+region.name]) }}
+			%% do table_heap.insert(region.index, {"name": "heap_"+region.name, "prop": "0x2013" if "dtcm" in region.name else "0x001f"})
+		%% endfor
+	%% endfor
+%% endmacro
+
+
+%% macro section_rom(memory)
+	.text :
+	{
+		*(.text .text.* .gnu.linkonce.t.*)
+	} >{{memory}}
+
+	.rodata :
+	{
+		*(.rodata .rodata.* .gnu.linkonce.r.*)
+		KEEP(*(.init))
+
+		. = ALIGN(4);
+		__init_array_start = .;
+		KEEP(*(SORT(.init_array.*)))
+		KEEP(*(.init_array))
+		. = ALIGN(4);
+		__init_array_end = .;
+	%% if 0
+		__fini_array_start = .;
+		KEEP(*(.fini_array))
+		KEEP(*(SORT(.fini_array.*)))
+		. = ALIGN(4);
+		__fini_array_end = .;
+	%% endif
+
+		__hardware_init_start = .;
+		/* Table symbols are alphabetically sorted! */
+		KEEP(*(SORT(.hardware_init.order_*)))
+		KEEP(*(SORT(.hardware_init)))
+		. = ALIGN(4);
+		__hardware_init_end = .;
+
+		__assertion_table_start = .;
+		KEEP(*(.assertion))
+		. = ALIGN(4);
+		__assertion_table_end = .;
+
+		__build_id = .;
+		KEEP(*(.note.gnu.build-id))
+	} >{{memory}}
+
+	%% if with_cpp_exceptions
+	.exidx :
+	{
+		. = ALIGN(4);
+		__exidx_start = .;
+		*(.ARM.exidx* .gnu.linkonce.armexidx.*)
+		. = ALIGN(4);
+		__exidx_end = .;
+	} >{{memory}}
+
+	.extab :
+	{
+		*(.ARM.extab* .gnu.linkonce.armextab.*)
+		KEEP(*(.eh_frame*))
+	} >{{memory}}
+	%% else
+	/* Unwind tables are used to unwind the stack for C++ exceptions. Even
+	 * though we disabled exceptions, pre-compiled libraries such as libstdc++
+	 * still have to raise exceptions. */
+	/DISCARD/ :
+	{
+		*(.ARM.extab* .gnu.linkonce.armextab.*)
+		*(.ARM.exidx* .gnu.linkonce.armexidx.*)
+		*(.eh_frame*)
+	}
+	%% endif
+	%% if not with_heap
+	/DISCARD/ :
+	{
+		/* See `modm:platform:heap` module for an explanation! */
+		*({{no_heap_section}})
+	}
+	%% endif
+%% endmacro
+
+
+%% macro section_ram(memory, rom, sections_data=[], sections_bss=[])
+	.data :
+	{
+		. = ALIGN(4);
+		__data_load = LOADADDR(.data);
+		__data_start = .;
+		*(.data .data.* .gnu.linkonce.d.*)
+		. = ALIGN(4);
+	} >{{memory}} AT >{{rom}}
+
+	%% for section in sections_data
+	.{{section}} :
+	{
+		__{{section}}_load = LOADADDR(.{{section}});
+		__{{section}}_start = .;
+		*(.{{section}} .{{section}}.*)
+		. = ALIGN(4);
+		__{{section}}_end = .;
+	} >{{memory}} AT >{{rom}}
+	%% endfor
+	__data_end = .;
+
+	.bss (NOLOAD) :
+	{
+		__bss_start = . ;
+		*(.bss .bss.* .gnu.linkonce.b.*)
+		. = ALIGN(4);
+		__bss_end = .;
+	} >{{memory}}
+
+	%% for section in sections_bss
+	.{{section}} (NOLOAD) :
+	{
+		__{{section}}_start = . ;
+		*(.{{section}} .{{section}}.*)
+		. = ALIGN(4);
+		__{{section}}_end = .;
+	} >{{memory}}
+	%% endfor
+	__bss_end = .;
+
+	.noinit (NOLOAD) :
+	{
+		__noinit_start = .;
+		*(.noinit .noinit.*)
+		. = ALIGN(4);
+		__noinit_end = .;
+	} >{{memory}}
+%% endmacro
+
+
+%% macro section_rom_start(rom)
+	__rom_start = ORIGIN({{rom}});
+%% endmacro
+
+%% macro section_rom_end(rom)
+	. = ALIGN(4);
+	__rom_end = .;
+%% endmacro
+
+
+%% macro section_debug()
+	/* DWARF debug sections */
+	.debug_abbrev   0 : { *(.debug_abbrev) }
+	.debug_aranges  0 : { *(.debug_aranges) }
+	.debug_frame    0 : { *(.debug_frame) }
+	.debug_info     0 : { *(.debug_info) }
+	.debug_line     0 : { *(.debug_line) }
+	.debug_loc      0 : { *(.debug_loc) }
+	.debug_macinfo  0 : { *(.debug_macinfo) }
+	.debug_pubnames 0 : { *(.debug_pubnames) }
+	.debug_pubtypes 0 : { *(.debug_pubtypes) }
+	.debug_ranges   0 : { *(.debug_ranges) }
+	.debug_str      0 : { *(.debug_str) }
+
+	.comment 0 : { *(.comment) }
+	.ARM.attributes 0 : { KEEP(*(.ARM.attributes)) }
+	/DISCARD/ : { *(.note.GNU-stack)  }
+%% endmacro

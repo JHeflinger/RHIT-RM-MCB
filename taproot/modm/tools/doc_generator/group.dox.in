@@ -1,0 +1,24 @@
+/**
+
+%% if module.pref != "modm"
+@ingroup {{ module.pref }}
+%% endif
+@defgroup {{ module.ref }} {{ module.title if module.title else module.name }}
+
+lbuild module: `{{module.name}}`
+
+{{ module.description | doxify }}
+
+%% if module.options | length
+## Module Options
+
+%% for o in module.options
+### {{ o.name }}: {{ o.title }}
+
+{{ o.description | doxify }}
+
+Generated with: `{{ o.value }}`
+%% endfor
+%% endif
+
+ */

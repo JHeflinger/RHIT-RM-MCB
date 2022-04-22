@@ -1,0 +1,142 @@
+/*
+ * Copyright (c) 2009-2012, 2017, Fabian Greif
+ * Copyright (c) 2011-2014, 2016-2017, Niklas Hauser
+ * Copyright (c) 2012, 2017, Sascha Schade
+ *
+ * This file is part of the modm project.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+// ----------------------------------------------------------------------------
+
+#ifndef MODM_ATXMEGA_UART_{{ id }}_HPP
+#define MODM_ATXMEGA_UART_{{ id }}_HPP
+
+//#include "../device.hpp"
+#include <modm/architecture/interface/uart.hpp>
+
+#include "uart_baudrate.hpp"
+
+namespace modm
+{
+
+namespace platform
+{
+
+/**
+ * (Non-)Buffered Uart{{ id }}
+ *
+ * This implementation uses a ringbuffer. The size of the ringbuffer
+ * can be changed in the `project.cfg` file.
+ *
+ * Just add add a value for `Uart{{ id }}.tx_buffer` and/or
+ * `Uart{{ id }}.rx_buffer` in the `defines` section. The size can
+ * be any value between 1 and 254 for buffered and 0 for
+ * non-buffered operation.
+ *
+ * Example:
+ * @code
+ * [defines]
+ * Uart{{ id }}.tx_buffer = 20
+ * Uart{{ id }}.rx_buffer = 30
+ * @endcode
+ *
+ * @author	Sascha Schade
+ * @author	Niklas Hauser
+ * @ingroup	xmega
+ */
+class Uart{{ id }} : public ::modm::Uart
+{
+public:
+	// Expose jinja template parameters to be checked by e.g. drivers or application
+	static constexpr size_t RxBufferSize = {{ parameters.rx_buffer }};
+	static constexpr size_t TxBufferSize = {{ parameters.tx_buffer }};
+
+public:
+	/**
+	 * Sets the baudrate.
+	 *
+	 * This function is called with a constant value as template parameter
+	 * so all the calculation is done by the compiler.
+	 *
+	 * @tparam	baudrate
+	 *		desired baud rate
+	 */
+	template< uint32_t baudrate >
+	static modm_always_inline void
+	initialize()
+	{
+		static_assert(F_CPU/16l >= baudrate, "The CPU frequency must be at least 16x higher than UART baudrate.");
+		static_assert((F_CPU / (16l * baudrate)) < (1 << 12), "UART baudrate is too slow for CPU frequency (Prescaler out of bounds).");
+
+		constexpr uint16_t bsel = UartBaudrate::bSel(baudrate);
+		constexpr uint8_t bscale = UartBaudrate::bScale(baudrate);
+
+		initializeWithFractionalBaudrate(bsel, bscale);
+	}
+
+	// start documentation inherited
+	// MARK: write blocking
+	static void
+	writeBlocking(uint8_t data);
+
+	static void
+	writeBlocking(const uint8_t *data, std::size_t length);
+
+	static void
+	flushWriteBuffer();
+
+	// MARK: write
+	static bool
+	write(uint8_t data);
+
+	static std::size_t
+	write(const uint8_t *data, std::size_t length);
+
+	static bool
+	isWriteFinished();
+
+	// MARK: read
+	static bool
+	read(uint8_t& data);
+
+	static std::size_t
+	read(uint8_t *buffer, std::size_t length);
+
+	// MARK: discard
+	static std::size_t
+	discardReceiveBuffer();
+
+	static std::size_t
+	discardTransmitBuffer();
+	// end documentation inherited
+
+	// MARK: error
+	/**
+	 * Check whether any errors occurred during receiving.
+	 * Be aware that these indicate an error that occurred somewhere
+	 * since resetting the Error Flags (with `acknowledgeErrorFlags()`), so
+	 * you cannot tell which byte had the error.
+	 *
+	 * @return	`0` if no errors occurred, otherwise a value that
+	 *			corresponds to the Error Flags in register STATUS.
+	 */
+	static uint8_t
+	getErrorFlags();
+
+	/// Clears the error flags.
+	static void
+	acknowledgeErrorFlags();
+
+protected:
+	static void
+	initializeWithFractionalBaudrate(uint16_t bsel, uint8_t bscale);
+};
+
+} // namespace platform
+
+} // namespace modm
+
+#endif // MODM_ATXMEGA_UART_{{ id }}_HPP

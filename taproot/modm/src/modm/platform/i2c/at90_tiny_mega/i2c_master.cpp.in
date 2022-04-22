@@ -1,0 +1,271 @@
+/*
+ * Copyright (c) 2012, 2017, Fabian Greif
+ * Copyright (c) 2012-2018, Niklas Hauser
+ * Copyright (c) 2017, Christopher Durand
+ *
+ * This file is part of the modm project.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+// ----------------------------------------------------------------------------
+
+#include "i2c_master.hpp"
+
+#include <avr/io.h>
+#include <avr/interrupt.h>
+#include <util/twi.h>
+#include <modm/architecture/interface/accessor.hpp>
+#include <modm/architecture/interface/interrupt.hpp>
+
+// uncomment to debug your driver using simple uart
+/*
+#include "../../uart/at90_tiny_mega/uart0.hpp"
+#define DEBUG(x) modm::platform::Uart0::write(x)
+/*/
+#define DEBUG(x)
+//*/
+
+// ----------------------------------------------------------------------------
+namespace
+{
+	// parameter advice
+	static modm::I2c::Operation nextOperation;
+
+	// delegating
+	static modm::I2cTransaction *transaction(nullptr);
+	static modm::I2cMaster::Error errorState(modm::I2cMaster::Error::NoError);
+	static modm::I2c::ConfigurationHandler configuration(nullptr);
+
+	// buffer management
+	static modm::I2cTransaction::Starting starting(0, modm::I2c::OperationAfterStart::Stop);
+	static modm::I2cTransaction::Writing writing(nullptr, 0, modm::I2c::OperationAfterWrite::Stop);
+	static modm::I2cTransaction::Reading reading(nullptr, 0, modm::I2c::OperationAfterRead::Stop);
+}
+
+// ----------------------------------------------------------------------------
+/// TWI state machine interrupt handler
+MODM_ISR(TWI)
+{
+	switch(TW_STATUS)
+	{
+		case TW_START:
+			// START has been transmitted
+			modm_fallthrough;
+		case TW_REP_START:
+			{
+				DEBUG('s');
+				// REPEATED START has been transmitted
+
+				starting = transaction->starting();
+				uint8_t addressMode = modm::I2c::Write;
+
+				switch (starting.next)
+				{
+					case modm::I2c::OperationAfterStart::Read:
+						addressMode = modm::I2c::Read;
+						reading = transaction->reading();
+						nextOperation = static_cast<modm::I2c::Operation>(reading.next);
+						break;
+
+					case modm::I2c::OperationAfterStart::Write:
+						writing = transaction->writing();
+						nextOperation = static_cast<modm::I2c::Operation>(writing.next);
+						break;
+
+					case modm::I2c::OperationAfterStart::Stop:
+						writing.length = 0;
+						reading.length = 0;
+						nextOperation = modm::I2c::Operation::Stop;
+						break;
+				}
+
+				// Load data register with TWI slave address
+				TWDR = addressMode | (starting.address & 0xfe);
+				// clear interrupt flag to send address
+				TWCR = (1 << TWINT) | (1 << TWEN) | (1 << TWIE);
+			}
+			break;
+
+		case TW_MT_SLA_ACK:
+			// SLA+W has been transmitted and ACK received
+			modm_fallthrough;
+		case TW_MT_DATA_ACK:
+			// Data byte has been transmitted and ACK received
+			if (writing.length > 0)
+			{
+				TWDR = *writing.buffer++;
+				DEBUG('0' + writing.length);
+				--writing.length;
+				TWCR = (1 << TWINT) | (1 << TWEN) | (1 << TWIE);
+				DEBUG('A');
+			}
+			else
+			{
+				switch (nextOperation)
+				{
+					case modm::I2c::Operation::Write:
+						DEBUG('C');
+						writing = transaction->writing();
+						nextOperation = static_cast<modm::I2c::Operation>(writing.next);
+						TWDR = *writing.buffer++;
+						--writing.length;
+						TWCR = (1 << TWINT) | (1 << TWEN) | (1 << TWIE);
+						DEBUG('A');
+						break;
+
+					case modm::I2c::Operation::Restart:
+						DEBUG('R');
+						TWCR = (1 << TWINT) | (1 << TWSTA) | (1 << TWEN) | (1 << TWIE);
+						break;
+
+					default:
+						DEBUG('S');
+						TWCR = (1 << TWINT) | (1 << TWSTO) | (1 << TWEN);
+						transaction->detaching(modm::I2c::DetachCause::NormalStop);
+						transaction = nullptr;
+						break;
+				}
+			}
+			break;
+
+		case TW_MR_DATA_ACK:
+			*reading.buffer++ = TWDR;
+			DEBUG('0' + reading.length);
+			--reading.length;
+
+			modm_fallthrough;
+		case TW_MR_SLA_ACK:
+			// SLA+R has been transmitted and ACK received
+			// See if last expected byte will be received ...
+			if (reading.length > 1) {
+				// Send ACK after reception
+				TWCR = (1 << TWINT) | (1 << TWEA) | (1 << TWEN) | (1 << TWIE);
+				DEBUG('a');
+			}
+			else {
+				// Send NACK after next reception
+				TWCR = (1 << TWINT) | (1 << TWEN) | (1 << TWIE);
+				DEBUG('n');
+			}
+			break;
+
+		case TW_MR_DATA_NACK:
+			// Data byte has been received and NACK transmitted
+			// => Transfer finished
+			*reading.buffer++ = TWDR;
+			DEBUG('0' + reading.length);
+			--reading.length;
+
+			switch (nextOperation)
+			{
+				case modm::I2c::Operation::Restart:
+					DEBUG('r');
+					TWCR = (1 << TWINT) | (1 << TWSTA) | (1 << TWEN) | (1 << TWIE);
+					break;
+
+				default:
+					DEBUG('S');
+					TWCR = (1 << TWINT) | (1 << TWSTO) | (1 << TWEN);
+					transaction->detaching(modm::I2c::DetachCause::NormalStop);
+					transaction = nullptr;
+					break;
+			}
+			break;
+
+		case TW_MT_SLA_NACK:	// SLA+W transmitted, NACK received
+		case TW_MR_SLA_NACK:	// SLA+R transmitted, NACK received
+			if (errorState == modm::I2cMaster::Error::NoError) {
+				errorState = modm::I2cMaster::Error::AddressNack;
+			}
+			DEBUG('A');
+
+			modm_fallthrough;
+		case TW_MT_DATA_NACK:	// data transmitted, NACK received
+			if (errorState == modm::I2cMaster::Error::NoError) {
+				errorState = modm::I2cMaster::Error::DataNack;
+			}
+			DEBUG('d');
+			// generate a stop condition
+			TWCR = (1 << TWINT) | (1 << TWSTO) | (1 << TWEN);
+
+			modm_fallthrough;
+		case TW_MT_ARB_LOST:	// arbitration lost in SLA+W or data
+//		case TW_MR_ARB_LOST:	// arbitration lost in SLA+R or NACK
+			if (errorState == modm::I2cMaster::Error::NoError) {
+				errorState = modm::I2cMaster::Error::ArbitrationLost;
+			}
+			DEBUG('d');
+
+			modm_fallthrough;
+		default:
+			if (errorState == modm::I2cMaster::Error::NoError) {
+				errorState = modm::I2cMaster::Error::Unknown;
+			}
+			DEBUG('r');
+			if (transaction) transaction->detaching(modm::I2c::DetachCause::ErrorCondition);
+			transaction = nullptr;
+			TWDR = 0xff;
+			TWCR = (1 << TWEN);
+			break;
+	}
+	DEBUG('\n');
+}
+
+// ----------------------------------------------------------------------------
+void
+modm::platform::I2cMaster::initialize(uint8_t twbr, Prescaler prescaler)
+{
+	// no reset, since we want to keep the transaction attached!
+	TWBR = twbr;
+	// No prescaler needed, unless we go significantly slower than standard Speed
+	TWSR = static_cast<uint8_t>(prescaler);
+	// Load data register with default content; release SDA
+	TWDR = 0xff;
+	// Enable TWI peripheral with interrupt disabled
+	TWCR = (1 << TWEN);
+}
+
+void
+modm::platform::I2cMaster::reset()
+{
+	DEBUG('T');
+	writing.length = 0;
+	reading.length = 0;
+	errorState = Error::SoftwareReset;
+	if (transaction) transaction->detaching(DetachCause::ErrorCondition);
+	transaction = nullptr;
+}
+
+modm::I2cMaster::Error
+modm::platform::I2cMaster::getErrorState()
+{
+	return errorState;
+}
+
+bool
+modm::platform::I2cMaster::start(I2cTransaction *transaction, ConfigurationHandler handler)
+{
+	if (!modm::accessor::asVolatile(::transaction) && transaction)
+	{
+		if (transaction->attaching())
+		{
+			if (handler and configuration != handler) {
+				configuration = handler;
+				configuration();
+			}
+
+			::transaction = transaction;
+			errorState = Error::NoError;
+			DEBUG('Y');
+			TWCR = (1 << TWINT) | (1 << TWSTA) | (1 << TWEN) | (1 << TWIE);
+
+			return true;
+		}
+		else {
+			transaction->detaching(modm::I2c::DetachCause::FailedToAttach);
+		}
+	}
+	return false;
+}

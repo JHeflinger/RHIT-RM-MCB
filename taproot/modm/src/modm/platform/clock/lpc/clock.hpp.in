@@ -1,0 +1,154 @@
+/*
+ * Copyright (c) 2013, Kevin Läufer
+ * Copyright (c) 2014-2017, Niklas Hauser
+ * Copyright (c) 2017, Fabian Greif
+ *
+ * This file is part of the modm project.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+// ----------------------------------------------------------------------------
+
+#ifndef MODM_LPC_CLOCK_HPP
+#define MODM_LPC_CLOCK_HPP
+
+#include <stdint.h>
+#include "common_clock.hpp"
+#include <modm/platform/device.hpp>
+// #include "static.hpp"
+
+
+namespace modm
+{
+	namespace platform
+	{
+		/**
+		 * Clock management
+		 *
+		 * \ingroup
+		 */
+		class ClockControl
+		{
+		public:
+			enum class
+			PllSource
+			{
+				IRC = 0,
+				SystemOscillator = 1,
+				InternalClock = IRC,
+				ExternalClock = SystemOscillator,
+				ExternalCrystal = SystemOscillator,
+			};
+
+			enum class
+			SystemClockSource : uint32_t
+			{
+				IRC = 0x0,
+				SystemPllInput = 0x1,
+				WatchdogOscillator = 0x2,
+				SystemPllOutput = 0x3,
+				InternalClock = IRC,
+				ExternalClock = SystemPllInput, // FIXME: not quite hitting it
+				ExternalCrystal = ExternalClock,
+				Pll = SystemPllOutput,
+			};
+
+			enum class
+			ClockOutputSource : uint32_t
+			{
+				IRC = 0x0,
+				SystemOscillator = 0x1,
+				WatchdogOscillator = 0x2,
+				MainClock = 0x3,
+				InternalClock = IRC,
+				ExternalClock = SystemOscillator,
+				ExternalCrystal = SystemOscillator,
+				SystemClock = MainClock,
+			};
+
+		public:
+			static bool
+			enableInternalClock(uint32_t kHz, uint32_t waitCycles = 2048);
+
+			static bool
+			enableExternalClock(uint32_t kHz, uint32_t waitCycles = 2048);
+
+			static bool
+			enableExternalCrystal(uint32_t kHz, uint32_t waitCycles = 2048);
+
+			/**
+			 * Enable PLL.
+			 *
+			 * \param	source
+			 * 		Source select for PLL
+			 *
+			 * \param	pllM
+			 * 		???
+			 *
+			 * \param	pllP
+			 * 		???
+			 *
+			 * Example:
+			 *
+			 */
+			static bool
+			enablePll(PllSource source, uint8_t pllM, uint8_t pllP);
+
+			static bool
+			enableSystemClock(SystemClockSource src, uint32_t waitCycles = 2048);
+
+			static bool
+			enableClockOutput(ClockOutputSource src, uint8_t div = 1, uint32_t waitCycles = 2048)
+			{
+				bool retval;
+				LPC_SYSCON->CLKOUTCLKSEL = 0x3 & static_cast<uint32_t>(src);
+				LPC_SYSCON->CLKOUTUEN = 0x01;	// toggle update enable register
+				LPC_SYSCON->CLKOUTUEN = 0x00;
+				LPC_SYSCON->CLKOUTUEN = 0x01;
+				LPC_SYSCON->CLKOUTDIV = 0xff & static_cast<uint8_t>(div);
+
+				while (not (retval = LPC_SYSCON->CLKOUTUEN & 0x01) and --waitCycles)
+					;
+
+				return retval;
+			}
+
+			static inline uint32_t
+			setFlashLatency(const uint32_t CPU_Frequency, const uint16_t /*mV*/ = 3300)
+			{
+				if (CPU_Frequency <= 20_MHz) {
+					LPC_FLASHCTRL->FLASHCFG = 0;
+				}
+				else if (CPU_Frequency <= 40_MHz) {
+					LPC_FLASHCTRL->FLASHCFG = 1;
+				}
+				else {
+					LPC_FLASHCTRL->FLASHCFG = 2;
+				}
+				return 50_MHz;
+			}
+
+			static inline uint32_t
+			getCpuFrequency()
+			{
+				return modm::clock::fcpu;
+			}
+
+			static inline uint32_t
+			getCpuFrequencykHz()
+			{
+				return modm::clock::fcpu_kHz;
+			}
+
+			static inline uint32_t
+			getCpuFrequencyMHz()
+			{
+				return modm::clock::fcpu_MHz;
+			}
+		};
+	}
+}
+
+#endif	//  MODM_LPC_CLOCK_HPP

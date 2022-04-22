@@ -1,0 +1,64 @@
+name: Run ARM Cortex-M tests on Windows
+
+on: [pull_request]
+
+jobs:
+  windows_armcortexm:
+    runs-on: windows-2019
+    env:
+      PYTHONIOENCODING: "utf-8"
+
+    steps:
+
+      # Disabling snake-oil for performance reasons
+      - name: Disable Windows Defender
+        run: Set-MpPreference -DisableRealtimeMonitoring $true
+
+      - name: Install Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: "3.8"
+
+      - name: Install Python packages
+        run: |
+          pip install --user modm scons future
+
+      - name: Download ARM Toolchain
+        shell: powershell
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          Invoke-WebRequest -OutFile gcc-arm-none-eabi-win32.zip https://developer.arm.com/-/media/Files/downloads/gnu-rm/10-2020q4/gcc-arm-none-eabi-10-2020-q4-major-win32.zip
+
+      - name: Install ARM Toolchain
+        shell: powershell
+        run: |
+          Add-Type -Assembly "System.IO.Compression.Filesystem"
+          [System.IO.Compression.ZipFile]::ExtractToDirectory("gcc-arm-none-eabi-win32.zip", "C:\")
+          dir C:\gcc-arm-none-eabi-10-2020-q4-major
+          echo "C:\gcc-arm-none-eabi-10-2020-q4-major\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          rm gcc-arm-none-eabi-win32.zip
+
+      - name: Show lbuild and arm-none-eabi-gcc Version Information
+        run: |
+          lbuild --version
+          arm-none-eabi-g++ --version
+          python -c "import os; print(os.cpu_count())"
+
+      - name: Check out repository
+        uses: actions/checkout@v2
+
+      - name: Git Submodules
+        shell: bash
+        run: |
+          git submodule update --init
+
+      - name: Compile STM32 Examples
+        shell: bash
+        run: |
+          (cd examples && python ../tools/scripts/examples_compile.py nucleo_f031k6 nucleo_f103rb nucleo_f303re nucleo_f411re nucleo_f746zg)
+          (cd examples && python ../tools/scripts/examples_compile.py nucleo_g071rb nucleo_l031k6 nucleo_l152re nucleo_l476rg nucleo_g474re)
+
+      # - name: Compile AVR Examples
+      #   shell: bash
+      #   run: |
+      #     (cd examples && python ../tools/scripts/examples_compile.py avr)

@@ -1,0 +1,39 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2018, Niklas Hauser
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+
+def init(module):
+    module.name = ":driver:ltc2984"
+    module.description = """\
+# LTC298x Thermometer
+
+LTC2983/LTC2984: Integrated temperature measurement system (20 channel)
+
+The integrated EEPROM of the LTC2984 is not supported by now.
+LTC2984 and LTC2983 are 100%% compatible except the LTC2983 has no integrated EEPROM.
+
+[Datasheet](http://cds.linear.com/docs/en/datasheet/2984fb.pdf)
+"""
+
+def prepare(module, options):
+    module.depends(
+        ":architecture:gpio",
+        ":architecture:register",
+        ":architecture:spi.device",
+        ":processing:resumable")
+    return True
+
+def build(env):
+    env.outbasepath = "modm/src/modm/driver/temperature"
+    env.copy("ltc2984.hpp")
+    env.copy("ltc2984.cpp")
+    env.copy("ltc2984_impl.hpp")

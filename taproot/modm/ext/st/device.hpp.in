@@ -1,0 +1,66 @@
+/*
+ * Copyright (c) 2009, Martin Rosekeit
+ * Copyright (c) 2009, Thorsten Lajewski
+ * Copyright (c) 2009-2010, 2016, Fabian Greif
+ * Copyright (c) 2012-2013, 2016, 2018 Niklas Hauser
+ * Copyright (c) 2013, Kevin Laeufer
+ *
+ * This file is part of the modm project.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+// ----------------------------------------------------------------------------
+
+#ifndef MODM_DEVICE_HPP
+#define MODM_DEVICE_HPP
+
+%% for define in defines
+#define {{ define }} 1
+%% endfor
+
+#include <stdint.h>
+// Defines for example the modm_always_inline macro
+#include <modm/architecture/utils.hpp>
+
+// Include external device headers:
+%% for header in headers
+#include <{{ header }}>
+%% endfor
+
+%% if target.family in ["g0"]
+// these defines are missing from the STM32G0 header files
+#define RCC_CFGR_SW_HSI (0UL)          /*!< HSI selected as system clock */
+#define RCC_CFGR_SW_HSE (0x00000001UL) /*!< HSE selected as system clock */
+#define RCC_CFGR_SW_PLL (0x00000002UL) /*!< PLL selected as system clock */
+#define RCC_CFGR_SW_LSI (0x00000003UL) /*!< LSI selected as system clock */
+#define RCC_CFGR_SW_LSE (0x00000004UL) /*!< LSE selected as system clock */
+
+#define RCC_CFGR_HPRE_DIV1   (0x0UL)        /*!< SYSCLK not divided */
+#define RCC_CFGR_HPRE_DIV2   (0x00000800UL) /*!< SYSCLK divided by 2 */
+#define RCC_CFGR_HPRE_DIV4   (0x00000900UL) /*!< SYSCLK divided by 4 */
+#define RCC_CFGR_HPRE_DIV8   (0x00000A00UL) /*!< SYSCLK divided by 8 */
+#define RCC_CFGR_HPRE_DIV16  (0x00000B00UL) /*!< SYSCLK divided by 16 */
+#define RCC_CFGR_HPRE_DIV64  (0x00000C00UL) /*!< SYSCLK divided by 64 */
+#define RCC_CFGR_HPRE_DIV128 (0x00000D00UL) /*!< SYSCLK divided by 128 */
+#define RCC_CFGR_HPRE_DIV256 (0x00000E00UL) /*!< SYSCLK divided by 256 */
+#define RCC_CFGR_HPRE_DIV512 (0x00000F00UL) /*!< SYSCLK divided by 512 */
+
+#define RCC_CFGR_PPRE_DIV1  (0x0UL)        /*!< HCLK not divided */
+#define RCC_CFGR_PPRE_DIV2  (0x00004000UL) /*!< HCLK divided by 2 */
+#define RCC_CFGR_PPRE_DIV4  (0x00005000UL) /*!< HCLK divided by 4 */
+#define RCC_CFGR_PPRE_DIV8  (0x00006000UL) /*!< HCLK divided by 8 */
+#define RCC_CFGR_PPRE_DIV16 (0x00007000UL) /*!< HCLK divided by 16 */
+%% endif
+
+/// @cond
+// This is a hack to make the *_Typedef's known to GDB, so that you can debug
+// the peripherals directly in GDB in any context.
+// Otherwise GDB would throw a "no symbol 'GPIO_TypeDef' in current context".
+%% for (name, type) in peripherals
+extern {{ type | lbuild.pad(19) }}	___{{ name | lbuild.pad(15) }};
+%% endfor
+/// @endcond
+
+#endif  // MODM_DEVICE_HPP

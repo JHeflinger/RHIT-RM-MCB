@@ -1,0 +1,134 @@
+/*
+ * Copyright (c) 2009-2013, 2017, Fabian Greif
+ * Copyright (c) 2011-2014, 2016-2017, Niklas Hauser
+ * Copyright (c) 2017, Sascha Schade
+ *
+ * This file is part of the modm project.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+// ----------------------------------------------------------------------------
+
+// Avoid problems with poisoned defines from the the newer devices
+#define __AVR_LIBC_DEPRECATED_ENABLE__	1
+
+#include "uart{{ id }}.hpp"
+
+#include <avr/io.h>
+#include <avr/interrupt.h>
+
+#include <modm/architecture/driver/atomic/queue.hpp>
+#include <modm/architecture/interface/atomic_lock.hpp>
+#include <modm/architecture/interface/interrupt.hpp>
+
+#include "uart_defines.h"
+
+static modm::atomic::Queue<uint8_t, modm::platform::Uart{{ id }}::RxBufferSize> rxBuffer;
+static uint8_t error;
+
+// ----------------------------------------------------------------------------
+MODM_ISR(USART{{ id }}_RX)
+{
+	// first save the errors
+	error |= UCSR{{ id }}A & ((1 << FE{{ id }}) | (1 << DOR{{ id }}));
+	// then read the buffer
+	uint8_t data = UDR{{ id }};
+	// push it into the buffer
+	rxBuffer.push(data);
+}
+
+// ----------------------------------------------------------------------------
+void
+modm::platform::Uart{{ id }}::initialize(uint16_t ubrr)
+{
+	atomic::Lock lock;
+	// Set baud rate
+	if (ubrr & 0x8000) {
+		UCSR{{ id }}A = (1 << U2X{{ id }});  //Enable 2x speed
+		ubrr &= ~0x8000;
+	}
+	else {
+		UCSR{{ id }}A = 0;
+	}
+	UBRR{{ id }}L = (uint8_t)  ubrr;
+	UBRR{{ id }}H = (uint8_t) (ubrr >> 8);
+
+	// Enable USART receiver and transmitter and receive complete interrupt
+	UCSR{{ id }}B = (1 << RXCIE{{ id }}) | (1 << RXEN{{ id }}) | (1 << TXEN{{ id }});
+
+	// Set frame format: asynchronous, 8data, no parity, 1stop bit
+#ifdef URSEL{{ id }}
+	UCSR{{ id }}C = (1 << UCSZ{{ id }}1) | (1 << UCSZ{{ id }}0) | (1 << URSEL{{ id }});
+#else
+	UCSR{{ id }}C = (1 << UCSZ{{ id }}1) | (1 << UCSZ{{ id }}0);
+#endif
+}
+
+// MARK: - read
+bool
+modm::platform::Uart{{ id }}::read(uint8_t& data)
+{
+	if (rxBuffer.isEmpty())
+		return false;
+
+	data = rxBuffer.get();
+	rxBuffer.pop();
+
+	return true;
+}
+
+std::size_t
+modm::platform::Uart{{ id }}::read(uint8_t *buffer, std::size_t length)
+{
+	for (std::size_t i = 0; i < length; ++i)
+	{
+		if (rxBuffer.isEmpty()) {
+			return i;
+		}
+		else {
+			*buffer++ = rxBuffer.get();
+			rxBuffer.pop();
+		}
+	}
+
+	return length;
+}
+
+// MARK: - discard
+std::size_t
+modm::platform::Uart{{ id }}::discardReceiveBuffer()
+{
+	std::size_t i(0);
+	while(!rxBuffer.isEmpty())
+	{
+		rxBuffer.pop();
+		++i;
+	}
+
+#if defined (RXC{{ id }})
+	uint8_t c;
+	while (UCSR{{ id }}A & (1 << RXC{{ id }}))
+	{
+		c = UDR{{ id }};
+		(void) c;
+	}
+#endif
+
+	return i;
+}
+
+// MARK: - error
+uint8_t
+modm::platform::Uart{{ id }}::getErrorFlags()
+{
+	return error;
+}
+
+void
+modm::platform::Uart{{ id }}::acknowledgeErrorFlags()
+{
+	error = 0;
+}
+

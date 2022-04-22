@@ -1,0 +1,407 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2016-2018, Niklas Hauser
+# Copyright (c) 2017, Fabian Greif
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+class Accessor(Module):
+    def init(self, module):
+        module.name = "accessor"
+        module.description = "Memory Accessors"
+
+    def prepare(self, module, options):
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm/src/modm/architecture"
+        env.copy("interface/accessor.hpp")
+        env.copy("interface/accessor_flash.hpp")
+        env.copy("interface/accessor_ram.hpp")
+
+# -----------------------------------------------------------------------------
+class Adc(Module):
+    def init(self, module):
+        module.name = "adc"
+        module.description = "Analog-to-Digital Converters"
+
+    def prepare(self, module, options):
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm/src/modm/architecture"
+        env.copy("interface/adc.hpp")
+        env.copy("interface/adc_interrupt.hpp")
+# -----------------------------------------------------------------------------
+
+class Assert(Module):
+    def init(self, module):
+        module.name = "assert"
+        module.description = FileReader("interface/assert.md")
+
+    def prepare(self, module, options):
+        platform = options[":target"].identifier.platform
+        module.add_option(
+            EnumerationOption(name="with_description",
+                              description=Assert.with_description_descr,
+                              default="release" if platform == "hosted" else "debug",
+                              enumeration=["off", "debug", "release"]))
+
+        module.depends(":architecture:register")
+        if platform == "avr":
+            module.depends(":architecture:accessor")
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm/src/modm/architecture"
+        env.substitutions = {"core": env[":target"].get_driver("core")["type"]}
+        env.template("interface/assert.hpp.in")
+        env.template("interface/assert.h.in")
+
+    with_description_descr = """# Include assertion description
+
+Places the full description of a `modm_assert()` into the firmware image instead
+of only into the ELF file. This makes printing assertion information a simple
+standalone feature, fully independent of any additional script for decoding
+logging output, however, it may increase binary size considerably!
+"""
+# -----------------------------------------------------------------------------
+
+class Atomic(Module):
+    def init(self, module):
+        module.name = "atomic"
+        module.description = "Atomic Operations and Containers"
+
+    def prepare(self, module, options):
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm/src/modm/architecture"
+        env.copy("interface/atomic_lock.hpp")
+        env.copy("driver/atomic")
+        env.copy("driver/atomic.hpp")
+# -----------------------------------------------------------------------------
+
+class BlockDevice(Module):
+    def init(self, module):
+        module.name = "block.device"
+        module.description = "Block Devices"
+
+    def prepare(self, module, options):
+        module.depends(":processing:resumable")
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm/src/modm/architecture"
+        env.copy("interface/block_device.hpp")
+# -----------------------------------------------------------------------------
+
+class BuildId(Module):
+    def init(self, module):
+        module.name = "build_id"
+        module.description = "GNU Build ID"
+
+    def prepare(self, module, options):
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm/src/modm/architecture"
+        env.copy("interface/build_id.hpp")
+# -----------------------------------------------------------------------------
+
+class Can(Module):
+    def init(self, module):
+        module.name = "can"
+        module.description = FileReader("interface/can.md")
+
+    def prepare(self, module, options):
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm/src/modm/architecture"
+        env.copy("interface/can.hpp")
+        env.copy("interface/can.cpp")
+        env.copy("interface/can_filter.hpp")
+        env.copy("interface/can_message.hpp")
+# -----------------------------------------------------------------------------
+
+class Clock(Module):
+    def init(self, module):
+        module.name = "clock"
+        module.description = FileReader("interface/clock.md")
+
+    def prepare(self, module, options):
+        module.depends(":stdc++")
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm/src/modm/architecture"
+        env.copy("interface/clock.hpp")
+# -----------------------------------------------------------------------------
+
+class Delay(Module):
+    def init(self, module):
+        module.name = "delay"
+        module.description = FileReader("interface/delay.md")
+
+    def prepare(self, module, options):
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm/src/modm/architecture"
+        env.copy("interface/delay.hpp")
+# -----------------------------------------------------------------------------
+
+class Gpio(Module):
+    def init(self, module):
+        module.name = "gpio"
+        module.description = FileReader("interface/gpio.md")
+
+    def prepare(self, module, options):
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm/src/modm/architecture"
+        env.copy("interface/gpio.hpp")
+# -----------------------------------------------------------------------------
+
+class GpioExpander(Module):
+    def init(self, module):
+        module.name = "gpio.expander"
+        module.description = "GPIO Expanders"
+
+    def prepare(self, module, options):
+        module.depends(":architecture:gpio", ":architecture:register",
+                       ":processing:resumable", ":math:utils")
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm/src/modm/architecture"
+        env.copy("interface/gpio_expander.hpp")
+# -----------------------------------------------------------------------------
+
+class I2c(Module):
+    def init(self, module):
+        module.name = "i2c"
+        module.description = "Inter-Integrated Circuit (I²C)"
+
+    def prepare(self, module, options):
+        module.depends(":architecture:gpio", ":architecture:delay")
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm/src/modm/architecture"
+        env.copy("interface/i2c.hpp")
+        env.copy("interface/i2c_master.hpp")
+        env.copy("interface/i2c_transaction.hpp")
+# -----------------------------------------------------------------------------
+
+class I2cDevice(Module):
+    def init(self, module):
+        module.name = "i2c.device"
+        module.description = "I²C Devices"
+
+    def prepare(self, module, options):
+        module.depends(":architecture:i2c", ":processing:resumable")
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm/src/modm/architecture"
+        env.copy("interface/i2c_device.hpp")
+# -----------------------------------------------------------------------------
+
+class I2cMultiplexer(Module):
+    def init(self, module):
+        module.name = "i2c.multiplexer"
+        module.description = "I²C Multiplexer"
+
+    def prepare(self, module, options):
+        module.depends(":architecture:i2c", ":architecture:register",
+                       ":processing:resumable", ":math:utils")
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm/src/modm/architecture"
+        env.copy("interface/i2c_multiplexer.hpp")
+# -----------------------------------------------------------------------------
+
+class Interrupt(Module):
+    def init(self, module):
+        module.name = "interrupt"
+        module.description = "Interrupt Service Routines"
+
+    def prepare(self, module, options):
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm/src/modm/architecture"
+        env.copy("interface/interrupt.hpp")
+# -----------------------------------------------------------------------------
+
+class Memory(Module):
+    def init(self, module):
+        module.name = "memory"
+        module.description = """
+# Memory Traits
+
+Memories have different traits, such as DMA-ability or access time. The memory
+allocator functions (`malloc()`, `operator new`, etc) by default only return
+DMA-able memories, ordered by fastest access time. To allocate memory with
+specific traits, use the overloaded `operator new`:
+
+```cpp
+auto *p = new (modm::MemoryFastData) Foo;
+auto *q = new (modm::MemoryExternal, std::nothrow) Foo;
+```
+
+!!! tip "You need to choose a heap implementation!"
+    You can include the `:platform:heap` module or supply your own implementation.
+"""
+
+    def prepare(self, module, options):
+        module.depends(":architecture:register")
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm/src/modm/architecture"
+        env.copy("interface/memory.hpp")
+# -----------------------------------------------------------------------------
+
+class OneWire(Module):
+    def init(self, module):
+        module.name = "1-wire"
+        module.description = FileReader("interface/one_wire.md")
+
+    def prepare(self, module, options):
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm/src/modm/architecture"
+        env.copy("interface/one_wire.hpp")
+# -----------------------------------------------------------------------------
+
+class Register(Module):
+    def init(self, module):
+        module.name = "register"
+        module.description = FileReader("interface/register.md")
+
+    def prepare(self, module, options):
+        module.depends(":math:utils")
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm/src/modm/architecture"
+        env.copy("interface/register.hpp")
+# -----------------------------------------------------------------------------
+
+class Spi(Module):
+    def init(self, module):
+        module.name = "spi"
+        module.description = "Serial Peripheral Interface (SPI)"
+
+    def prepare(self, module, options):
+        module.depends(":processing:resumable")
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm/src/modm/architecture"
+        env.copy("interface/spi.hpp")
+        env.copy("interface/spi_master.hpp")
+# -----------------------------------------------------------------------------
+
+class SpiDevice(Module):
+    def init(self, module):
+        module.name = "spi.device"
+        module.description = "SPI Devices"
+
+    def prepare(self, module, options):
+        module.depends(":architecture:spi")
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm/src/modm/architecture"
+        env.copy("interface/spi_device.hpp")
+# -----------------------------------------------------------------------------
+
+class Uart(Module):
+    def init(self, module):
+        module.name = "uart"
+        module.description = "Universal Asynchronous Receiver/Transmitter (UART)"
+
+    def prepare(self, module, options):
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm/src/modm/architecture"
+        env.copy("interface/uart.hpp")
+# -----------------------------------------------------------------------------
+
+class Unaligned(Module):
+    def init(self, module):
+        module.name = "unaligned"
+        module.description = "Unaligned Memory Accessor"
+
+    def prepare(self, module, options):
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm/src/modm/architecture"
+        env.copy("interface/unaligned.hpp")
+# -----------------------------------------------------------------------------
+
+import re
+
+def init(module):
+    module.name = ":architecture"
+    module.description = """
+# Architecture Interfaces
+
+All hardware peripherals with common interfaces.
+"""
+
+def prepare(module, options):
+    module.depends(":math:units")
+
+    module.add_submodule(Accessor())
+    module.add_submodule(Adc())
+    module.add_submodule(Assert())
+    module.add_submodule(Atomic())
+    module.add_submodule(BlockDevice())
+    module.add_submodule(BuildId())
+    module.add_submodule(Can())
+    module.add_submodule(Clock())
+    module.add_submodule(Delay())
+    module.add_submodule(Gpio())
+    module.add_submodule(GpioExpander())
+    module.add_submodule(I2c())
+    module.add_submodule(I2cDevice())
+    module.add_submodule(I2cMultiplexer())
+    module.add_submodule(Interrupt())
+    module.add_submodule(Memory())
+    module.add_submodule(OneWire())
+    module.add_submodule(Register())
+    module.add_submodule(Spi())
+    module.add_submodule(SpiDevice())
+    module.add_submodule(Uart())
+    module.add_submodule(Unaligned())
+
+    return True
+
+def build(env):
+    env.outbasepath = "modm/src/modm/architecture"
+
+    headers = env.generated_local_files(filterfunc=lambda path: re.match(r"interface[\\/]\w+\.hpp", path))
+    env.template("interface.hpp.in", substitutions={"headers": sorted(headers)})
+
+    env.copy("utils.hpp")
+    env.copy("detect.hpp")
+    env.copy("interface/peripheral.hpp")
+
+    env.outbasepath = "modm/src/modm"
+    env.copy("architecture.hpp")

@@ -1,0 +1,124 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2020, Niklas Hauser
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+
+class Clock(Module):
+    def init(self, module):
+        module.name = "clock"
+        module.description = "System Tick Mockup"
+
+    def prepare(self, module, options):
+        module.depends(":architecture:clock")
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm-test/src/modm-test/mock"
+        env.copy("clock.hpp")
+        env.copy("clock.cpp")
+
+class SpiDevice(Module):
+    def init(self, module):
+        module.name = "spi.device"
+
+    def prepare(self, module, options):
+        module.depends(":architecture:spi.device")
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm-test/src/modm-test/mock"
+        env.copy("spi_device.hpp")
+        env.copy("spi_device.cpp")
+
+class SpiMaster(Module):
+    def init(self, module):
+        module.name = "spi.master"
+
+    def prepare(self, module, options):
+        module.depends(":architecture:spi", ":container")
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm-test/src/modm-test/mock"
+        env.copy("spi_master.hpp")
+        env.copy("spi_master.cpp")
+
+class CanDriver(Module):
+    def init(self, module):
+        module.name = "can_driver"
+        module.description = "CAN Mockup"
+
+    def prepare(self, module, options):
+        module.depends(":architecture:can", ":container")
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm-test/src/modm-test/mock"
+        env.copy("can_driver.hpp")
+        env.copy("can_driver.cpp")
+
+class IoDevice(Module):
+    def init(self, module):
+        module.name = "io.device"
+
+    def prepare(self, module, options):
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm-test/src/modm-test/mock"
+        env.copy("iodevice.hpp")
+        env.copy("io_device.hpp")
+        env.copy("io_device.cpp")
+
+class SharedMedium(Module):
+    def init(self, module):
+        module.name = "shared_medium"
+
+    def prepare(self, module, options):
+        module.depends(":stdc++")
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm-test/src/modm-test/mock"
+        env.copy("shared_medium.hpp")
+
+class LogicAnalyzer(Module):
+    def init(self, module):
+        module.name = "logic_analyzer"
+
+    def prepare(self, module, options):
+        core = options[":target"].get_driver("core:cortex-m*")
+        # Cortex-M0 doesn't have the DWT->CYCCNT and Cortex-M7 support is broken
+        if not core or "m0" in core["type"] or "m7" in core["type"]:
+            return False
+
+        module.depends(":stdc++", ":driver:gpio_sampler", ":debug")
+        return True
+
+    def build(self, env):
+        env.outbasepath = "modm-test/src/modm-test/mock"
+        env.copy("logic_analyzer.hpp")
+
+
+def init(module):
+    module.name = ":mock"
+
+def prepare(module, options):
+    module.add_submodule(Clock())
+    module.add_submodule(SpiDevice())
+    module.add_submodule(SpiMaster())
+    module.add_submodule(CanDriver())
+    module.add_submodule(IoDevice())
+    module.add_submodule(SharedMedium())
+    module.add_submodule(LogicAnalyzer())
+    return True
+
+def build(env):
+    pass

@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2018, Niklas Hauser
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+
+def init(module):
+    module.name = ":driver:lis3dsh"
+    module.description = """\
+# LIS3DSH 3-Axis Accelerometer
+
+The LIS3DSH is an ultra low-power high performance three-axis linear
+accelerometer belonging to the "nano" family with embedded state machine
+that can be programmed to implement autonomous applications. The LIS3DSH has
+dynamically selectable full scales of ±2g/±4g/±6g/±8g/±16g and it is capable
+of measuring accelerations with output data rates from 3.125 Hz to 1.6 kHz.
+"""
+
+def prepare(module, options):
+    module.depends(
+        ":architecture:register",
+        ":driver:lis3.transport",
+        ":math:utils")
+    return True
+
+def build(env):
+    env.outbasepath = "modm/src/modm/driver/inertial"
+    env.copy("lis3dsh.hpp")
+    env.copy("lis3dsh_impl.hpp")

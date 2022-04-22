@@ -1,0 +1,38 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2018, Niklas Hauser
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+
+def init(module):
+    module.name = ":driver:hmc6343"
+    module.description = """\
+# HMC6343 3-Axis Compass
+
+The Honeywell HMC6343 is a fully integrated compass module that
+includes firmware for heading computation and calibration for
+magnetic distortions. The module combines 3-axis magneto-resistive
+sensors and 3-axis MEMS accelerometers, analog and digital
+support circuits, microprocessor and algorithms required for
+heading computation.
+"""
+
+def prepare(module, options):
+    module.depends(
+        ":architecture:i2c.device",
+        ":architecture:register",
+        ":math:utils",
+        ":processing:protothread")
+    return True
+
+def build(env):
+    env.outbasepath = "modm/src/modm/driver/inertial"
+    env.copy("hmc6343.hpp")
+    env.copy("hmc6343_impl.hpp")

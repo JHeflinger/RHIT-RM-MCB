@@ -1,0 +1,27 @@
+/*
+ * Copyright (c) 2020, Mike Wolfram
+ * Copyright (c) 2021, Christopher Durand
+ *
+ * This file is part of the modm project.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+// ----------------------------------------------------------------------------
+
+#include "dma.hpp"
+
+using namespace modm::platform;
+
+%% for irq in irqList
+MODM_ISR({{ irq["name"] }})
+{
+%% for instance in irq["instances"]
+%% for channel in instance["channels"]
+	Dma{{ instance["instance"] }}::Channel<DmaBase::Channel::Channel{{ channel }}>::interruptHandler();
+%% endfor
+%% endfor
+}
+
+%% endfor

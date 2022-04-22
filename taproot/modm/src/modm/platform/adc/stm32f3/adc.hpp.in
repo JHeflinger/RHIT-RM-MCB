@@ -1,0 +1,415 @@
+/*
+ * Copyright (c) 2013-2014, Kevin Läufer
+ * Copyright (c) 2014, 2016-2018, Niklas Hauser
+ * Copyright (c) 2017, Sascha Schade
+ *
+ * This file is part of the modm project.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+// ----------------------------------------------------------------------------
+
+#ifndef MODM_STM32F3_ADC{{ id }}_HPP
+#define MODM_STM32F3_ADC{{ id }}_HPP
+
+#include <stdint.h>
+#include "../device.hpp"
+#include <modm/architecture/interface/register.hpp>
+#include <modm/platform/gpio/connector.hpp>
+
+namespace modm
+{
+namespace platform
+{
+/**
+ * Analog/Digital-Converter module (ADC{{ id }}).
+ *
+ * The 12-bit ADC is a successive approximation analog-to-digital
+ * converter. It has up to 19 multiplexed channels allowing it measure
+ * signals from 16 external and three internal sources.
+ * The result of the ADC is stored in a left-aligned or right-aligned
+ * 16-bit data register.
+ *
+ * This API is designed for the internal ADCs of STM32F30X/STM32F31X
+ *
+ * \author	Kevin Laeufer
+ * \author	Sascha Schade (strongly-typed)
+ * \ingroup	modm_platform_adc modm_platform_adc_{{id}}
+ */
+class Adc{{ id }}
+{
+public:
+	/// Channels, which can be used with this ADC.
+	enum class Channel : uint8_t	// TODO: What is the best type?
+	{
+%% for channel in channels
+		Channel{{ channel }} = {{ channel }},
+%% endfor
+%#
+%% if id == 1
+%% if target["family"] in ["f3"]
+		Opamp1    = 15,
+		VTS       = 16,
+		BatDiv2   = 17,
+		InternalReference = 18,
+		// TODO: Add internal connections
+%% elif target["family"] in ["l4", "g4"]
+		Temperature = 17,
+		BatDiv3     = 18,
+%% endif
+%% elif id == 2
+%% if target["family"] in ["f3"]
+		Opamp2 = 17,
+		InternalReference = 18,
+%% elif target["family"] in ["l4", "g4"]
+		Dac1 = 17,
+		Dac2 = 18,
+%% endif
+%% elif id == 3
+%% if target["family"] in ["f3"]
+		Vss    =  4,	// ADC3_IN4 not bonded and connected to VSS
+		Opamp3 = 17,
+		InternalReference = 18,
+%% elif target["family"] in ["l4", "g4"]
+		Dac1 = 14,
+		Dac2 = 15,
+		Vss  = 16,
+		Temperature = 17,
+		BatDiv3 = 18,
+%% endif
+%% elif id == 4
+		Opamp3 = 17,
+		InternalReference = 18,
+%% endif
+	};
+
+	enum class ClockMode : uint32_t
+	{
+		DoNotChange = 0xff,// if you do not want to change the clock mode
+		Asynchronous = 0,	// clocked by ADC_CK12 / ADC_CK34 / ADC123_CK
+		// In synchronous mode ADC is clocked by the AHB clock (stm32f3) or
+		// by HCLK (stm32l4)
+		SynchronousPrescaler1 = {{ adc_ccr }}_CKMODE_0,
+		SynchronousPrescaler2 = {{ adc_ccr }}_CKMODE_1,
+		SynchronousPrescaler4 = {{ adc_ccr }}_CKMODE_1 | {{ adc_ccr }}_CKMODE_0,
+	};
+
+%% if clock_mux
+	// ADCs clock source selection
+	enum class ClockSource : uint32_t
+	{
+		NoClock = 0, // No clock selected.
+%% if target["family"] in ["g4"]
+%% if id in [1, 2]
+		Pll = RCC_CCIPR_ADC12SEL_0, // PLL “P” clock selected as ADC clock
+		SystemClock = RCC_CCIPR_ADC12SEL_1 , // System clock selected as ADCs clock
+%% elif id in [3, 4, 5]
+		Pll = RCC_CCIPR_ADC345SEL_0, // PLL “P” clock selected as ADC clock
+		SystemClock = RCC_CCIPR_ADC345SEL_1 , // System clock selected as ADCs clock
+%% endif
+%% else
+		PllSai1 = RCC_CCIPR_ADCSEL_0, // PLLSAI1 "R" clock (PLLADC1CLK) selected as ADCs clock
+		PllSai2 = RCC_CCIPR_ADCSEL_1, // PLLSAI2 "R" clock (PLLADC2CLK) selected as ADCs clock
+		SystemClock = RCC_CCIPR_ADCSEL_1 | RCC_CCIPR_ADCSEL_0, // System clock selected as ADCs clock
+%% endif
+	};
+%% endif
+
+	// Prescaler of the Asynchronous ADC clock
+	enum class Prescaler : uint32_t
+	{
+		Disabled 			= 0,
+%% if target["family"] in ["f3"]
+		Div1 				= RCC_CFGR2_{{ adc_pre }}_DIV1,
+		Div2 				= RCC_CFGR2_{{ adc_pre }}_DIV2,
+		Div4 				= RCC_CFGR2_{{ adc_pre }}_DIV4,
+		Div6 				= RCC_CFGR2_{{ adc_pre }}_DIV6,
+		Div8 				= RCC_CFGR2_{{ adc_pre }}_DIV8,
+		Div10 				= RCC_CFGR2_{{ adc_pre }}_DIV10,
+		Div12 				= RCC_CFGR2_{{ adc_pre }}_DIV12,
+		Div16 				= RCC_CFGR2_{{ adc_pre }}_DIV16,
+		Div32 				= RCC_CFGR2_{{ adc_pre }}_DIV32,
+		Div64 				= RCC_CFGR2_{{ adc_pre }}_DIV64,
+		Div128 				= RCC_CFGR2_{{ adc_pre }}_DIV128,
+		Div256 				= RCC_CFGR2_{{ adc_pre }}_DIV256,
+		Div256AllBits 		= RCC_CFGR2_{{ adc_pre }},	// for bit clear
+%% elif target["family"] in ["l4", "g4"]
+		Div1 				= 0,
+		Div2 				= ADC_CCR_PRESC_0,
+		Div4 				= ADC_CCR_PRESC_1,
+		Div6 				= ADC_CCR_PRESC_1 | ADC_CCR_PRESC_0,
+		Div8 				= ADC_CCR_PRESC_2,
+		Div10 				= ADC_CCR_PRESC_2 | ADC_CCR_PRESC_0,
+		Div12 				= ADC_CCR_PRESC_2 | ADC_CCR_PRESC_1,
+		Div16 				= ADC_CCR_PRESC_2 | ADC_CCR_PRESC_1 | ADC_CCR_PRESC_0,
+		Div32 				= ADC_CCR_PRESC_3,
+		Div64 				= ADC_CCR_PRESC_3 | ADC_CCR_PRESC_0,
+		Div128 				= ADC_CCR_PRESC_3 | ADC_CCR_PRESC_1,
+		Div256 				= ADC_CCR_PRESC_3 | ADC_CCR_PRESC_1 | ADC_CCR_PRESC_0,
+		Div256AllBits 		= ADC_CCR_PRESC_3 | ADC_CCR_PRESC_2 | ADC_CCR_PRESC_1 | ADC_CCR_PRESC_0,	// for bit clear
+%% endif
+	};
+
+%% if target["family"] in ["l4", "g4"]
+	enum class SampleTime : uint8_t	// TODO: What is the best type?
+	{
+		Cycles2 	= 0b000,	//!   1.5 ADC clock cycles
+		Cycles7 	= 0b001,	//!   6.5 ADC clock cycles
+		Cycles13 	= 0b010,	//!  12.5 ADC clock cycles
+		Cycles25	= 0b011,	//!  24.5 ADC clock cycles
+		Cycles48 	= 0b100,	//!  47.5 ADC clock cycles
+		Cycles93 	= 0b101,	//!  92.5 ADC clock cycles
+		Cycles248 	= 0b110,	//! 247.5 ADC clock cycles
+		Cycles641 	= 0b111,	//! 640.5 ADC clock cycles
+	};
+%% else
+	enum class SampleTime : uint8_t	// TODO: What is the best type?
+	{
+		Cycles2 	= 0b000,	//!   1.5 ADC clock cycles
+		Cycles3 	= 0b001,	//!   2.5 ADC clock cycles
+		Cycles5 	= 0b010,	//!   4.5 ADC clock cycles
+		Cycles8 	= 0b011,	//!   7.5 ADC clock cycles
+		Cycles20 	= 0b100,	//!  19.5 ADC clock cycles
+		Cycles62 	= 0b101,	//!  61.5 ADC clock cycles
+		Cycles182 	= 0b110,	//! 181.5 ADC clock cycles
+		Cycles602 	= 0b111,	//! 601.5 ADC clock cycles
+	};
+%% endif
+	enum class CalibrationMode : uint32_t
+	{
+		SingleEndedInputsMode = 0,
+		DifferntialInputsMode = ADC_CR_ADCALDIF,
+		DoNotCalibrate = 0xff,	// if you want to avoid calibration
+	};
+
+	enum class VoltageRegulatorState : uint32_t
+	{
+%% if target["family"] in ["l4", "g4"]
+		Enabled 		= ADC_CR_ADVREGEN,
+%% elif target["family"] in ["f3"]
+		// Intermediate state is needed to move from enabled to disabled
+		// state and vice versa
+		Intermediate 	= 0,
+		Enabled 		= ADC_CR_ADVREGEN_0,
+		Disables		= ADC_CR_ADVREGEN_1,
+%% endif
+	};
+
+	enum class Interrupt : uint32_t
+	{
+		Ready 								= ADC_IER_ADRDYIE,
+		EndOfSampling 						= ADC_IER_EOSMPIE,
+		EndOfRegularConversion 				= ADC_IER_EOCIE,
+		EndOfRegularSequenceOfConversions 	= ADC_IER_EOSIE,
+		Overrun 							= ADC_IER_OVRIE,
+		EndOfInjectedConversion 			= ADC_IER_JEOCIE,
+		EndOfInjectedSequenceOfConversions 	= ADC_IER_JEOSIE,
+		AnalogWatchdog1 					= ADC_IER_AWD1IE,
+		AnalogWatchdog2 					= ADC_IER_AWD2IE,
+		AnalogWatchdog3 					= ADC_IER_AWD3IE,
+		InjectedContextQueueOverflow 		= ADC_IER_JQOVFIE,
+	};
+	MODM_FLAGS32(Interrupt);
+
+	enum class InterruptFlag : uint32_t
+	{
+		Ready 								= ADC_ISR_ADRDY,
+		EndOfSampling 						= ADC_ISR_EOSMP,
+		EndOfRegularConversion 				= ADC_ISR_EOC,
+		EndOfRegularSequenceOfConversions 	= ADC_ISR_EOS,
+		Overrun 							= ADC_ISR_OVR,
+		EndOfInjectedConversion 			= ADC_ISR_JEOC,
+		EndOfInjectedSequenceOfConversions 	= ADC_ISR_JEOS,
+		AnalogWatchdog1 					= ADC_ISR_AWD1,
+		AnalogWatchdog2 					= ADC_ISR_AWD2,
+		AnalogWatchdog3 					= ADC_ISR_AWD3,
+		InjectedContextQueueOverflow 		= ADC_ISR_JQOVF,
+	};
+	MODM_FLAGS32(InterruptFlag);
+
+public:
+	template< template<Peripheral _> class... Signals >
+	static void
+	connect()
+	{
+		using Connector = GpioConnector<Peripheral::Adc{{ id }}, Signals...>;
+		Connector::connect();
+	}
+
+	/**
+	 * Initialize and enable the A/D converter.
+	 *
+	 * Enables the ADC clock and switches on the ADC. The ADC clock
+	 * prescaler will be set as well.
+	 *
+	 * The ADC can be clocked
+	 *
+	 * @param clk
+	 * 		Clock Mode for ADC1/ADC2 or ADC3/ADC4.
+	 * 		Set to ClockMode::DoNotChange or leave blank if you
+	 * 		want to leave this setting untouched.
+	 *
+	 * @param pre
+	 * 		The prescaler for the asynchronous ADC clock.
+	 * 		This parameter is only taken into account
+	 * 		if clk == ClockMode::Asynchronous.
+	 */
+	static inline void
+	initialize(	const ClockMode clk = ClockMode::DoNotChange,
+%% if clock_mux
+				const ClockSource clk_src = ClockSource::SystemClock,
+%% endif
+				const Prescaler pre = Prescaler::Disabled,
+				const CalibrationMode cal = CalibrationMode::DoNotCalibrate,
+				const bool blocking = true);
+
+	static inline void
+	disable(const bool blocking = true);
+
+	/**
+	 * Select the frequency of the clock to the ADC. The clock is common
+	 * for ADC1/ADC2 and ADC3/ADC4.
+	 *
+	 * @pre The PLL must be running.
+	 *
+	 * @param prescaler
+	 * 		The prescaler specifies by which factor the system clock
+	 * 		will be divided.
+	 */
+	static inline void
+	setPrescaler(const Prescaler pre);
+
+	/**
+	 * Returns true if the ADRDY bit of the ISR is set
+	 **/
+	static inline bool
+	isReady();
+
+	static inline void
+	calibrate(const CalibrationMode mode, const bool blocking = true);
+
+	/**
+	 * Change the presentation of the ADC conversion result.
+	 *
+	 * @param enable
+	 * 		Set to \c true to left adjust the result.
+	 *		Otherwise, the result is right adjusted.
+	 *
+	 * @pre The ADC clock must be started and the ADC switched on with
+	 * 		initialize()
+	 */
+	static inline void
+	setLeftAdjustResult(const bool enable);
+
+	/**
+	 * Analog channel selection.
+	 *
+	 * This not for scan mode. The number of channels will be set to 1,
+	 * the channel selected and the corresponding pin will be set to
+	 * analog input.
+	 * If the the channel is modified during a conversion, the current
+	 * conversion is reset and a new start pulse is sent to the ADC to
+	 * convert the new chosen channnel / group of channels.
+	 *
+	 *
+	 * @param channel		The channel which shall be read.
+	 * @param sampleTime	The sample time to sample the input voltage.
+	 *
+	 * @pre The ADC clock must be started and the ADC switched on with
+	 * 		initialize()
+	 */
+	static inline bool
+	setChannel(const Channel channel,
+			const SampleTime sampleTime=static_cast<SampleTime>(0b000));
+
+	/// Setting the channel for a Pin
+	template< class Gpio >
+	static inline bool
+	setPinChannel(SampleTime sampleTime = static_cast<SampleTime>(0b000))
+	{
+		return setChannel(getPinChannel<Gpio>(), sampleTime);
+	}
+	/// Get the channel for a Pin
+	template< class Gpio >
+	static inline constexpr Channel
+	getPinChannel()
+	{
+		constexpr int8_t channel{Gpio::template AdcChannel<Peripheral::Adc{{ id }}>};
+		static_assert(channel >= 0, "Adc{{id}} does not have a channel for this pin!");
+		return Channel(channel);
+	}
+
+	/**
+	 * Enables free running mode
+	 *
+	 * The ADC will continously start conversions and provide the most
+	 * recent result in the ADC register.
+	 *
+	 * @pre The ADC clock must be started and the ADC switched on with
+	 * 		initialize()
+	 */
+	static inline void
+	setFreeRunningMode(const bool enable);
+
+	/**
+	 * Start a new conversion or continuous conversions.
+	 *
+	 * @pre A ADC channel must be selected with setChannel().
+	 *
+	 * @post The result can be fetched with getValue()
+	 *
+	 * TODO: is there any limitation to when is can be called??
+	 */
+	static inline void
+	startConversion(void);
+
+	/**
+	 * @return If the conversion is finished.
+	 * @pre A conversion should have been stared with startConversion()
+	 */
+	static inline bool
+	isConversionFinished(void);
+
+	/**
+	 * @return The most recent 16bit result of the ADC conversion.
+	 * @pre A conversion should have been stared with startConversion()
+	 *
+	 * To have a blocking GET you might do it this way:
+	 * @code
+		while(!isConversionFinished())
+		{
+			// Waiting for conversion
+		}
+		@endcode
+	 */
+	static inline uint16_t
+	getValue(void)
+	{
+		return ADC{{ id }}->DR;
+	}
+
+	static inline void
+	enableInterruptVector(const uint32_t priority, const bool enable = true);
+
+	static inline void
+	enableInterrupt(const Interrupt_t interrupt);
+
+	static inline void
+	disableInterrupt(const Interrupt_t interrupt);
+
+	static inline InterruptFlag_t
+	getInterruptFlags();
+
+	static inline void
+	acknowledgeInterruptFlag(const InterruptFlag_t flags);
+};
+
+}
+
+}
+
+#include "adc_{{ id }}_impl.hpp"
+
+#endif	// MODM_STM32F3_ADC{{ id }}_HPP

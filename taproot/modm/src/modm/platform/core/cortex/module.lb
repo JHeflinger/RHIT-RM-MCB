@@ -1,0 +1,366 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2016-2021, Niklas Hauser
+# Copyright (c) 2017, Fabian Greif
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+def common_vector_table_location(env):
+    return env.get(":platform:cortex-m:vector_table_location", "rom")
+
+def common_vector_table(env):
+    """
+    Computes vector table properties:
+
+      - `vector_table`: [position] = Full vector name (ie. *with* `_Handler` or `_IRQHandler` suffix)
+      - `vector_table_location`: rom or ram
+      - `highest_irq`: highest IRQ number + 1
+      - `core`: cortex-m{0,3,4,7}{,+,f,fd}
+
+    The system vectors start at -16, so you must add 16 to `highest_irq` to get
+    the total number of vectors in the table!
+
+    :returns: a dictionary of vector table properties
+    """
+    device = env[":target"]
+    driver = device.get_driver("core")
+    core = driver["type"]
+
+    # Add common ARM Cortex-M exceptions
+    interrupts = {
+        -15: "Reset_Handler",
+        -14: "NMI_Handler",
+        -13: "HardFault_Handler",
+        -5: "SVC_Handler",
+        -2: "PendSV_Handler",
+        -1: "SysTick_Handler"
+    }
+    # The fault and debug handlers are ARMv7-M only
+    if "m0" not in core:
+        interrupts.update({
+            -12: "MemManage_Handler",
+            -11: "BusFault_Handler",
+            -10: "UsageFault_Handler",
+            -4: "DebugMon_Handler"
+        })
+    # Append `_IRQHandler` to all
+    for vector in driver["vector"]:
+        interrupts[int(vector["position"])] = vector["name"] + "_IRQHandler"
+
+    properties = {
+        "core": core,
+        "vector_table_location": common_vector_table_location(env),
+        "vector_table": interrupts,
+        "highest_irq": max(interrupts.keys()) + 1,
+    }
+    return properties
+
+
+def common_memories(env):
+    """
+    Computes memory properties:
+
+      - `memories`: unfiltered memory regions
+      - `regions`: memory region names
+      - `cont_ram_regions`: all continuous internal SRAM sections
+      - `cont_ram`: largest continuous internal SRAM section
+
+    :returns: dictionary of memory properties
+    """
+    device = env[":target"]
+    memories = listify(device.get_driver("core")["memory"])
+
+    # Convert from string to int and add offsets
+    flash_offset = env.get(":platform:cortex-m:linkerscript.flash_offset", 0)
+    for m in memories:
+        if m["name"] == "flash":
+            m["start"] = int(m["start"], 0) + flash_offset
+            m["size"] = int(m["size"], 0) - flash_offset
+        else:
+            m["start"] = int(m["start"], 0)
+            m["size"] = int(m["size"], 0)
+
+    # Find all continuous internal SRAM sections
+    cont = []
+    index = 0
+    for m in memories:
+        if "ram" in m["name"] or "dtcm" in m["name"]:
+            if cont and (cont[-1]["start"] + cont[-1]["size"] == m["start"]):
+                cont[-1]["size"] += m["size"]
+                cont[-1]["contains"].append({**m, "index": index})
+            else:
+                cont.append(dict(m))
+                cont[-1]["contains"] = [{**m, "index": index}]
+                cont[-1]["name"] = "cont_" + cont[-1]["name"]
+            index += 1
+
+    properties = {
+        "memories": memories,
+        "regions": [m["name"] for m in memories],
+        "ram_regions": list(sorted(m["name"] for m in memories if "ram" in m["name"])),
+        "cont_ram_regions": cont,
+        "cont_ram": sorted(cont, key=lambda m: -m["size"])[0],
+    }
+    return properties
+
+# See :platform:heap for explanation
+common_no_heap_section = (".Heap_is_not_implemented!__"
+        "Please_include_the__modm:platform:heap__module_in_your_project!")
+
+def common_linkerscript(env):
+    """
+    Computes linkerscript properties
+    (\\* *post-build only*):
+
+      - `process_stack_size`: largest requested process stack size by any module
+      - `vector_table_location`: ram or rom
+
+    Stripped and newline-joined collector values of:
+
+      - `linkerscript_memory`
+      - `linkerscript_sections`
+      - `linkerscript_extern_zero`
+      - `linkerscript_extern_copy`
+      - `linkerscript_extern_heap`
+
+    Additional memory properties:
+
+      - `memories`: unfiltered memory regions
+      - `regions`: memory region names
+      - `ram_origin`: Lowest SRAM origin address
+      - `ram_origin`: Total size of all SRAM regions
+      - `cont_ram_regions`: all continuous internal SRAM sections
+      - `cont_ram`: largest continuous internal SRAM section
+
+    :returns: dictionary of linkerscript properties
+    """
+    properties = {
+        "process_stack_size":
+            max(env.collector_values(":platform:cortex-m:linkerscript.process_stack_size", 0)),
+        "vector_table_location":
+            common_vector_table_location(env),
+
+        "linkerscript_memory": "\n".join([m.strip() for m in
+            env.collector_values(":platform:cortex-m:linkerscript.memory")]),
+        "linkerscript_sections": "\n".join([m.strip() for m in
+            env.collector_values(":platform:cortex-m:linkerscript.sections")]),
+        "linkerscript_extern_zero": "\n".join([m.strip() for m in
+            env.collector_values(":platform:cortex-m:linkerscript.table_extern.zero")]),
+        "linkerscript_extern_copy": "\n".join([m.strip() for m in
+            env.collector_values(":platform:cortex-m:linkerscript.table_extern.copy")]),
+        "linkerscript_extern_heap": "\n".join([m.strip() for m in
+            env.collector_values(":platform:cortex-m:linkerscript.table_extern.heap")]),
+
+        "with_cpp_exceptions": env.get(":stdc++:exceptions", False),
+        "with_heap": env.has_module(":platform:heap"),
+        "with_crashcatcher": env.has_module(":crashcatcher"),
+        "no_heap_section": common_no_heap_section,
+    }
+    properties.update(common_memories(env))
+    return properties
+
+
+def init(module):
+    module.name = ":platform:cortex-m"
+    module.description = FileReader("module.md")
+
+
+def prepare(module, options):
+    if not options[":target"].has_driver("core:cortex-m*"):
+        return False
+
+    module.depends(
+        ":architecture:interrupt",
+        ":cmsis:device",
+        ":stdc++")
+
+    module.add_option(
+        NumericOption(
+            name="main_stack_size",
+            description=FileReader("option/main_stack_size.md"),
+            minimum=2 ** 8,
+            maximum=2 ** 16,
+            default="3*1024"))
+
+    if "f" in options[":target"].get_driver("core")["type"]:
+        module.add_option(
+            EnumerationOption(
+                name="float-abi",
+                description="Floating point ABI",
+                enumeration=["soft", "softfp", "hard"],
+                default="hard"))
+
+    memories = listify(options[":target"].get_driver("core")["memory"])
+
+    # Cortex-M0 does not have remappable vector table, so it will remain in Flash
+    if not options[":target"].has_driver("core:cortex-m0*"):
+        default_location = "rom"
+        if any((m["name"] == "ccm" and "x" in m["access"]) or m["name"] == "dtcm" for m in memories):
+            default_location = "ram"
+        module.add_option(
+            EnumerationOption(
+                name="vector_table_location",
+                description=FileReader("option/vector_table_location.md"),
+                enumeration=["rom", "ram"],
+                default=default_location))
+
+    # Find the size of the flash memory
+    flash_size = next(int(x['size']) for x in memories if x['name'] == 'flash')
+    module.add_option(
+        NumericOption(
+            name="linkerscript.flash_offset",
+            description=FileReader("option/flash_offset.md"),
+            minimum=0,
+            maximum=hex(flash_size),
+            default=0))
+
+    module.add_option(
+        PathOption(
+            name="linkerscript.override",
+            description="Path to project provided linkerscript",
+            default="",
+            empty_ok=True,
+            absolute=False,
+        ))
+
+    module.add_collector(
+        StringCollector(
+            name="linkerscript.memory",
+            description="Additions to the linkerscript's 'MEMORY'"))
+    module.add_collector(
+        StringCollector(
+            name="linkerscript.sections",
+            description="Additions to the linkerscript's 'SECTIONS'"))
+    module.add_collector(
+        StringCollector(
+            name="linkerscript.table_extern.zero",
+            description="Additions to the linkerscript's '.table.zero.extern' section"))
+    module.add_collector(
+        StringCollector(
+            name="linkerscript.table_extern.copy",
+            description="Additions to the linkerscript's '.table.copy.extern' section"))
+    module.add_collector(
+        StringCollector(
+            name="linkerscript.table_extern.heap",
+            description="Additions to the linkerscript's '.table.heap' section"))
+    module.add_collector(
+        NumericCollector(
+            name="linkerscript.process_stack_size",
+            description="Maximum required size of the process stack",
+            minimum=0))
+
+    module.add_query(
+        EnvironmentQuery(name="vector_table", factory=common_vector_table))
+    module.add_query(
+        EnvironmentQuery(name="linkerscript", factory=common_linkerscript))
+
+    return True
+
+
+def validate(env):
+    flash_offset_option_name = "modm:platform:cortex-m:linkerscript.flash_offset"
+    flash_offset = env[flash_offset_option_name]
+    if flash_offset != 0:
+        # The offset needs to be aligned regarding the number of interrupts
+        # in order for the vector table relocation to work. Every interrupt
+        # requires 4 bytes, and therefore two additional bits of alignment.
+        number_of_interrupts = env.query(":::vector_table")["highest_irq"] + 16
+        bit_alignment = number_of_interrupts.bit_length() + 2
+        mask = (1 << bit_alignment) - 1
+        if flash_offset & mask:
+            raise ValidateException("Invalid flash offset in option '{}' (value=0x{:X}). "
+                                    "The offset needs to be {} bit aligned."
+                                    .format(flash_offset_option_name,
+                                            flash_offset,
+                                            bit_alignment))
+
+
+def build(env):
+    env.substitutions = env.query("vector_table")
+    env.substitutions.update({
+        "target": env[":target"].identifier,
+        "with_fault_storage": env.has_module(":platform:fault"),
+        "with_memory_traits": env.has_module(":architecture:memory"),
+        "with_assert": env.has_module(":architecture:assert"),
+        "with_fpu": env.get("float-abi", "soft") != "soft",
+    })
+    env.outbasepath = "modm/src/modm/platform/core"
+
+    # startup script
+    env.copy("reset_handler.sx")
+    env.template("startup.c.in")
+    env.template("vectors.c.in")
+    env.collect(":build:linkflags", "-nostartfiles")
+
+    # dealing with runtime assertions
+    if env.has_module(":architecture:assert"):
+        env.template("assert.cpp.in")
+        env.template("assert_impl.hpp.in")
+
+    # hardware init section
+    env.copy("hardware_init.hpp")
+
+    # busy-waiting delays
+    if env.has_module(":architecture:delay"):
+        if not env.substitutions["core"].startswith("cortex-m0"):
+            env.template("delay.cpp.in")
+        # Must be done by :platform:core module due to tuning
+        # env.template("delay_impl.hpp.in")
+        # env.template("delay_ns.hpp.in")
+        # env.template("delay_ns.cpp.in")
+
+    # GNU Build ID
+    env.collect(":build:linkflags", "-Wl,--build-id=sha1")
+    if env.has_module(":architecture:build_id"):
+        env.copy("build_id.cpp")
+
+    # Heap table from linkerscript
+    if env.has_module(":architecture:memory"):
+        env.template("heap_table.cpp.in")
+        env.template("heap_table.hpp.in")
+    # Deprecate malloc and new if no heap is implemented!
+    if not env.has_module(":platform:heap"):
+        env.substitutions["no_heap_section"] = common_no_heap_section
+        env.template("../../heap/cortex/no_heap.c.in", "no_heap.c")
+
+    if env.has_module(":architecture:atomic"):
+        env.template("atomic_lock_impl.hpp.in")
+
+    if env.has_module(":architecture:accessor"):
+        env.copy("flash_reader_impl.hpp")
+
+    if env.has_module(":architecture:unaligned"):
+        env.template("unaligned_impl.hpp.in")
+
+    env.collect(":build:linkflags", "-Wl,--no-wchar-size-warning", "-L{project_source_dir}")
+    # Linkerscript
+    linkerscript_override_option = env["linkerscript.override"]
+    if linkerscript_override_option:
+        env.collect(":build:linkflags", "-T{}".format(linkerscript_override_option))
+    else:
+        env.collect(":build:linkflags", "-Tmodm/link/linkerscript.ld")
+
+    # Compilation for FPU
+    core = env[":target"].get_driver("core")["type"]
+    cpu = core.replace("fd", "").replace("f", "").replace("+", "plus")
+    env.collect(":build:archflags", "-mcpu={}".format(cpu), "-mthumb")
+
+    single_precision = True
+    fpu = core.replace("cortex-m", "").replace("+", "")
+    if "f" in fpu:
+        fpu_spec = {
+            "4f": "-mfpu=fpv4-sp-d16",
+            "7f": "-mfpu=fpv5-sp-d16",
+            "7fd": "-mfpu=fpv5-d16",
+        }[fpu]
+        env.collect(":build:archflags", "-mfloat-abi={}".format(env["float-abi"]), fpu_spec)
+        single_precision = ("-sp-" in fpu_spec)
+    if single_precision:
+        env.collect(":build:ccflags", "-fsingle-precision-constant",
+                                      "-Wdouble-promotion")

@@ -1,0 +1,62 @@
+%% import "../cortex/linker.macros" as linker with context
+{{ linker.copyright() }}
+
+{{ linker.prefix() }}
+%% set table_heap = []
+%% set table_copy = []
+%% set table_zero = []
+
+
+SECTIONS
+{
+{{ linker.section_rom_start("FLASH") }}
+
+{{ linker.section_vector_rom("FLASH") }}
+
+{{ linker.section_rom("FLASH") }}
+
+
+%% if vector_table_location == "ram"
+{{ linker.section_vector_ram(cont_ram_regions[0].name|upper) }}
+%% endif
+
+{{ linker.section_ram(cont_ram_regions[0].name|upper, "FLASH",
+                      sections_data=["fastcode", "data_" + cont_ram_regions[0].contains[0].name],
+                      sections_bss=["bss_" + cont_ram_regions[0].contains[0].name]) }}
+
+{{ linker.all_heap_sections(table_copy, table_zero, table_heap) }}
+
+
+%% if "backup" in regions
+{{ linker.section("BACKUP AT >FLASH", "data_backup") }}
+%% do table_copy.append("data_backup")
+
+{{ linker.section_heap("BACKUP", "heap_backup", sections=["bss_backup", "noinit_backup"]) }}
+%% do table_heap.append({"name": "heap_backup", "prop": "0x4009"})
+%% do table_zero.append("bss_backup")
+%% endif
+
+
+{{ linker.section_stack("CCM") }}
+
+	/* CCM can only be accessed by D-Bus, do not place .fastcode here! */
+{{ linker.section("CCM AT >FLASH", "fastdata", sections=["data_ccm"]) }}
+%% do table_copy.append("fastdata")
+
+{{ linker.section_heap("CCM", "heap_ccm", sections=["bss_ccm", "noinit_ccm"]) }}
+%% do table_heap.append({"name": "heap_ccm", "prop": "0x2002"})
+%% do table_zero.append("bss_ccm")
+%% if with_crashcatcher
+	g_crashCatcherStack = . - 500;
+%% endif
+
+
+{{ linkerscript_sections | indent(first=True) }}
+
+
+{{ linker.section_tables("FLASH", table_copy, table_zero, table_heap) }}
+
+{{ linker.section_rom_end("FLASH") }}
+
+{{ linker.section_debug() }}
+}

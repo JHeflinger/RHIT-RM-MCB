@@ -1,0 +1,44 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2018, Niklas Hauser
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+
+def init(module):
+    module.name = ":driver:bme280"
+    module.description = """\
+# BME280 Pressure Sensor
+
+The BME280 is a high precision digital temperature, pressure and humidity
+sensor with I2C interface.
+
+It is known that many BME280-modules suffer from self-heating (I2C pull-ups?).
+So the reported temperature is about 1 to 3 degree higher than with other sensors.
+Forced ventilation can drop the temperature by 2 to 3 degrees.
+"""
+
+def prepare(module, options):
+    module.depends(
+        ":architecture:i2c.device",
+        ":architecture:register",
+        ":math:utils",
+        ":debug",
+        ":processing:protothread",
+        ":processing:timer")
+    return True
+
+def build(env):
+    env.outbasepath = "modm/src/modm/driver/pressure"
+    env.copy("bme280.hpp")
+    env.copy("bme280_impl.hpp")
+    env.copy("bme280_data.hpp")
+    env.copy("bme280_data_impl_fp.hpp")
+    if env[":target"].identifier["platform"] != "avr":
+        env.copy("bme280_data_impl_double.hpp")

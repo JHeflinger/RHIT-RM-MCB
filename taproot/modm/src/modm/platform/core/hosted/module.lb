@@ -1,0 +1,56 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2016-2018, Niklas Hauser
+# Copyright (c) 2017, Fabian Greif
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+def init(module):
+    module.name = ":platform:core"
+    module.description = "Hosted Core"
+
+def prepare(module, options):
+    if options[":target"].identifier.platform != "hosted":
+        return False
+
+    module.depends(
+        ":architecture:memory",
+        ":debug")
+
+    return True
+
+def build(env):
+    target = env[":target"].identifier
+    env.substitutions = {"target": target, "core": "hosted"}
+    env.outbasepath = "modm/src/modm/platform/core"
+
+    if env.has_module(":architecture:memory"):
+        env.copy("memory.cpp")
+
+    if env.has_module(":architecture:atomic"):
+        env.copy("atomic_lock_impl.hpp")
+
+    if env.has_module(":architecture:unaligned"):
+        env.copy("../avr/unaligned_impl.hpp", "unaligned_impl.hpp")
+
+    if env.has_module(":architecture:accessor"):
+        env.copy("../cortex/flash_reader_impl.hpp", "flash_reader_impl.hpp")
+
+    if env.has_module(":architecture:clock"):
+        env.copy("clock.cpp")
+
+    if env.has_module(":architecture:delay"):
+        env.template("delay_impl.hpp.in")
+
+    if env.has_module(":architecture:assert"):
+        env.template("../cortex/assert.cpp.in", "assert.cpp")
+        env.template("../cortex/assert_impl.hpp.in", "assert_impl.hpp")
+        #if target.family == "windows":
+        #    env.log.error("Assertions are not fully implemented!")
+

@@ -1,0 +1,342 @@
+// coding: utf-8
+/*
+ * Copyright (c) 2018, Álan Crístoffer
+ * Copyright (c) 2018, Carl Treudler
+ * Copyright (c) 2018-2019, Niklas Hauser
+ *
+ * This file is part of the modm project.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+// ----------------------------------------------------------------------------
+
+#ifndef MODM_STM32{{ target.family | upper }}_ADC{{ id }}_HPP
+#define MODM_STM32{{ target.family | upper }}_ADC{{ id }}_HPP
+
+#include <stdint.h>
+#include "../device.hpp"
+#include <modm/architecture/interface/adc.hpp>
+#include <modm/architecture/interface/register.hpp>
+#include <modm/platform/gpio/connector.hpp>
+
+namespace modm::platform
+{
+/**
+ * Analog/Digital-Converter module (ADC1).
+ *
+ * The 12-bit ADC is a successive approximation analog-to-digital
+ * converter. It has up to 19 multiplexed channels allowing it measure
+ * signals from 16 external and three internal sources.
+ * The result of the ADC is stored in a left-aligned or right-aligned
+ * 16-bit data register.
+ *
+ * This API is designed for the internal ADCs of STM32F0x1/STM32F0x2/STM32F0x8
+ *
+ * \author	Álan Crístoffer
+ * \author	Niklas Hauser
+ * \ingroup	modm_platform_adc
+ */
+class Adc{{ id }} : public modm::Adc
+{
+public:
+	enum class Channel : uint8_t
+	{
+%% for channel, name in channels.items() | sort
+		{{ name }} = {{ channel }},
+%% endfor
+	};
+
+	enum class ClockMode
+	{
+		Synchronous,
+		Asynchronous,
+	};
+
+	enum class SampleTime : uint8_t
+	{
+		Cycles1_5 	= 0b000,	/// 000:   1.5 ADC clock cycles
+%% if target.family in ["f0"]
+		Cycles7_5 	= 0b001,	/// 001:   7.5 ADC clock cycles
+		Cycles13_5 	= 0b010,	/// 010:  13.5 ADC clock cycles
+		Cycles28_5 	= 0b011,	/// 011:  28.5 ADC clock cycles
+		Cycles41_5 	= 0b100,	/// 100:  41.5 ADC clock cycles
+		Cycles55_5 	= 0b101,	/// 101:  55.5 ADC clock cycles
+		Cycles71_5 	= 0b110,	/// 110:  71.5 ADC clock cycles
+		Cycles239_5 = 0b111,	/// 111: 239.5 ADC clock cycles
+%% else
+		Cycles3_5 	= 0b001,	/// 001:   3.5 ADC clock cycles
+		Cycles7_5 	= 0b010,	/// 010:   7.5 ADC clock cycles
+		Cycles12_5 	= 0b011,	/// 011:  12.5 ADC clock cycles
+		Cycles19_5 	= 0b100,	/// 100:  19.5 ADC clock cycles
+		Cycles39_5 	= 0b101,	/// 101:  39.5 ADC clock cycles
+		Cycles79_5 	= 0b110,	/// 110:  79.5 ADC clock cycles
+		Cycles160_5 = 0b111,	/// 111: 160.5 ADC clock cycles
+%% endif
+	};
+
+%% if target.family in ["g0"]
+	enum class SampleTimeGroup
+	{
+		Group1,
+		Group2,
+	};
+
+	enum class OversampleRatio : uint32_t
+	{
+		x2 = (0 << ADC_CFGR2_OVSR_Pos),
+		x4 = (1 << ADC_CFGR2_OVSR_Pos),
+		x8 = (2 << ADC_CFGR2_OVSR_Pos),
+		x16 = (3 << ADC_CFGR2_OVSR_Pos),
+		x32 = (4 << ADC_CFGR2_OVSR_Pos),
+		x64 = (5 << ADC_CFGR2_OVSR_Pos),
+		x128 = (6 << ADC_CFGR2_OVSR_Pos),
+		x256 = (7 << ADC_CFGR2_OVSR_Pos),
+	};
+
+	enum class OversampleShift : uint32_t
+	{
+		Div1 = (0 << ADC_CFGR2_OVSS_Pos),
+		Div2 = (1 << ADC_CFGR2_OVSS_Pos),
+		Div4 = (2 << ADC_CFGR2_OVSS_Pos),
+		Div8 = (3 << ADC_CFGR2_OVSS_Pos),
+		Div16 = (4 << ADC_CFGR2_OVSS_Pos),
+		Div32 = (5 << ADC_CFGR2_OVSS_Pos),
+		Div64 = (6 << ADC_CFGR2_OVSS_Pos),
+		Div128 = (7 << ADC_CFGR2_OVSS_Pos),
+		Div256 = (8 << ADC_CFGR2_OVSS_Pos),
+	};
+%% endif
+
+	enum class Resolution : uint8_t
+	{
+		Bits12 = 0,
+		Bits10 = ADC_CFGR1_RES_0,
+		Bits8  = ADC_CFGR1_RES_1,
+		Bits6  = ADC_CFGR1_RES_0 | ADC_CFGR1_RES_1
+	};
+
+	enum class Interrupt : uint32_t
+	{
+		Ready = ADC_IER_ADRDYIE,
+		EndOfSampling = ADC_IER_EOSMPIE,
+		EndOfConversion = ADC_IER_EOCIE,
+		EndOfSequence = ADC_IER_EOSIE,
+		Overrun = ADC_IER_OVRIE,
+		AnalogWatchdog = ADC_IER_AWD1IE
+	};
+	MODM_FLAGS32(Interrupt);
+
+	enum class InterruptFlag : uint32_t
+	{
+		Ready = ADC_ISR_ADRDY,
+		EndOfSampling = ADC_ISR_EOSMP,
+		EndOfConversion = ADC_ISR_EOC,
+		EndOfSequence = ADC_ISR_EOS,
+		Overrun = ADC_ISR_OVR,
+		AnalogWatchdog = ADC_ISR_AWD1
+	};
+	MODM_FLAGS32(InterruptFlag);
+
+public:
+	// start inherited documentation
+	template< template<Peripheral _> class... Signals >
+	static void
+	connect()
+	{
+		using Connector = GpioConnector<Peripheral::Adc{{ id }}, Signals...>;
+		Connector::connect();
+	}
+
+
+	/**
+	 * Initialize and enable the A/D converter.
+	 *
+	 * Enables the ADC clock and switches on the ADC. The ADC clock
+	 * prescaler will be set as well.
+	 *
+	 * The ADC can be clocked
+	 *
+	 * @param clk
+	 * 		Set to ClockMode::DoNotChange or leave blank if you
+	 * 		want to leave this setting untouched.
+	 *
+	 */
+	template< class SystemClock, ClockMode mode,
+			  frequency_t frequency=MHz(1), percent_t tolerance=pct(10) >
+	static void
+	initialize();
+
+	static inline void
+	disable();
+
+	static inline void
+	setAutoOffMode(bool enable);
+
+	static inline void
+	setWaitMode(bool enable);
+
+%% if target.family in ["g0"]
+	static inline void
+	enableOversampling(OversampleRatio ratio, OversampleShift shift = OversampleShift::Div1);
+
+	static inline void
+	disableOversampling();
+%% endif
+
+	/**
+	 * Returns true if the ADRDY bit of the ISR is set
+	 **/
+	static inline bool
+	isReady();
+
+	static inline uint16_t
+	calibrate();
+
+	static inline void
+	startConversion();
+
+	static inline bool
+	isConversionFinished();
+
+	static inline uint16_t
+	getValue()
+	{
+		return ADC1->DR;
+	}
+
+	static inline uint16_t
+	readChannel(Channel channel);
+
+	/// Reads the calibrated Internal Reference Voltage in mV
+	static inline uint16_t
+	readInternalVoltageReference();
+
+	/// Reads the calibrated temperature in degree Celsius
+	static inline int16_t
+	readTemperature(uint16_t Vref);
+
+
+	static inline void
+	setResolution(Resolution resolution);
+
+	static inline void
+	setLeftAdjustResult();
+
+	static inline void
+	setRightAdjustResult();
+
+	/**
+	 * Analog channel selection.
+	 *
+	 * This not for scan mode. The number of channels will be set to 1,
+	 * the channel selected and the corresponding pin will be set to
+	 * analog input.
+	 * If the the channel is modified during a conversion, the current
+	 * conversion is reset and a new start pulse is sent to the ADC to
+	 * convert the new chosen channnel / group of channels.
+	 *
+	 *
+	 * @param channel		The channel which shall be read.
+	 *
+	 * @pre The ADC clock must be started and the ADC switched on with
+	 * 		initialize()
+	 */
+	static inline bool
+%% if target.family in ["g0"]
+	setChannel(Channel channel, SampleTimeGroup group = SampleTimeGroup::Group1);
+%% else
+	setChannel(Channel channel);
+%% endif
+
+	static inline void
+	clearChannel(Channel channel);
+
+	/// Setting the channel for a Pin
+	template< class Gpio >
+	static inline bool
+%% if target.family in ["g0"]
+	setPinChannel(SampleTimeGroup group = SampleTimeGroup::Group1)
+	{
+		return setChannel(getPinChannel<Gpio>(), group);
+%% else
+	setPinChannel()
+	{
+		return setChannel(getPinChannel<Gpio>());
+%% endif
+	}
+	/// Get the channel for a Pin
+	template< class Gpio >
+	static inline constexpr Channel
+	getPinChannel()
+	{
+		constexpr int8_t channel{Gpio::template AdcChannel<Peripheral::Adc{{ id }}>};
+		static_assert(channel >= 0, "Adc does not have a channel for this pin!");
+		return Channel(channel);
+	}
+
+	template< class Gpio >
+	static inline uint16_t
+	readPinChannel()
+	{
+		return readChannel(getPinChannel<Gpio>());
+	}
+
+%% if target.family in ["g0"]
+	static inline void
+	setSampleTime(SampleTime sampleTime, SampleTimeGroup group = SampleTimeGroup::Group1);
+%% else
+	static inline void
+	setSampleTime(SampleTime sampleTime);
+%% endif
+
+	static inline void
+	enableFreeRunningMode();
+
+	static inline void
+	disableFreeRunningMode();
+
+
+	static inline void
+	enableInterruptVector(uint32_t priority, bool enable = true);
+
+	static inline void
+	enableInterrupt(Interrupt_t interrupt);
+
+	static inline void
+	disableInterrupt(Interrupt_t interrupt);
+
+	static inline InterruptFlag_t
+	getInterruptFlags();
+
+	static inline void
+	acknowledgeInterruptFlag(InterruptFlag_t flags);
+
+public:
+	static constexpr uint8_t TS_CAL1_TEMP{30};
+%% if target.family in ["f0"]
+	static constexpr uint16_t VDDA_CAL{3300};
+	static inline volatile uint16_t *const VREFINT_CAL{(volatile uint16_t *)0x1FFF'F7BA};
+	static inline volatile uint16_t *const TS_CAL1{(volatile uint16_t *)0x1FFF'F7B8};
+%% if target.name in ["30", "70"]
+	// defined in F030 reference manual
+	static constexpr uint16_t TS_AVG_SLOPE{5336};
+%% else
+	static constexpr uint8_t TS_CAL2_TEMP{110};
+	static inline volatile uint16_t *const TS_CAL2{(volatile uint16_t *)0x1FFF'F7C2};
+%% endif
+%% else
+	static constexpr uint8_t TS_CAL2_TEMP{130};
+	static constexpr uint16_t VDDA_CAL{3000};
+	static inline volatile uint16_t *const VREFINT_CAL{(volatile uint16_t *)0x1FFF75AA};
+	static inline volatile uint16_t *const TS_CAL1{(volatile uint16_t *)0x1FFF75A8};
+	static inline volatile uint16_t *const TS_CAL2{(volatile uint16_t *)0x1FFF75CA};
+%% endif
+};
+
+} // namespace modm::platform
+
+#include "adc_impl.hpp"
+
+#endif	// MODM_STM32F0_ADC{{ id }}_HPP

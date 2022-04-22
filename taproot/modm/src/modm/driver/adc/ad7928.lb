@@ -1,0 +1,40 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2018, Niklas Hauser
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+
+def init(module):
+    module.name = ":driver:ad7928"
+    module.description = """\
+# AD79x8 ADC
+
+The AD7928/AD7918/AD7908 are, respectively, 12/10/8 bit analog-digital converters.
+The conversion time is determined by the Spi clock frequency. A maximum Spi clock
+of 20 Mhz is supported.
+"""
+
+
+def prepare(module, options):
+    module.depends(
+        ":architecture:accessor",
+        ":architecture:delay",
+        ":architecture:gpio",
+        ":architecture:register",
+        ":architecture:spi.device",
+        ":io",
+        ":processing:resumable")
+    return True
+
+def build(env):
+    env.outbasepath = "modm/src/modm/driver/adc"
+    env.copy("ad7928.hpp")
+    env.copy("ad7928.cpp")
+    env.copy("ad7928_impl.hpp")

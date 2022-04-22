@@ -1,0 +1,251 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2017-2018, Niklas Hauser
+# Copyright (c) 2019, Raphael Lehmann
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+from os.path import join, relpath, isdir, exists
+
+def init(module):
+    module.name = ":build:scons"
+    module.description = FileReader("module.md")
+
+
+def prepare(module, options):
+    module.add_option(
+        BooleanOption(name="include_sconstruct", default=True,
+                      description=descr_include_sconstruct))
+    module.add_option(
+        PathOption(name="cache_dir", default="", empty_ok=True, absolute=True,
+                   description=descr_cache_dir))
+    module.add_option(
+        PathOption(name="path.artifact", default="artifacts", absolute=True,
+                   description=descr_path_artifact))
+
+    module.add_collector(
+        CallableCollector(name="flag_format",
+                          description="Formatting compile flags for SCons"))
+    module.add_collector(
+        PathCollector(name="path.tools",
+                      description="SCons tool paths to be added to the Environment"))
+    module.add_collector(
+        StringCollector(name="tools",
+                        description="SCons tools to be added to the Environment"))
+
+    # Deprecation aliases
+    module.add_alias(
+        Alias(name="unittest.source",
+              destination=":build:unittest.source",
+              description="Moved into `modm:build` module"))
+    module.add_alias(
+        Alias(name="info.git",
+              destination=":build:info.git",
+              description="Moved into `modm:build` module"))
+    module.add_alias(
+        Alias(name="info.build",
+              destination=":build:info.build",
+              description="Moved into `modm:build` module"))
+    module.add_alias(
+        Alias(name="image.source",
+              destination=":build:image.source",
+              description="Moved into `modm:build` module"))
+
+    return True
+
+
+def build(env):
+    def flag_format(flag):
+        subs = {
+            "target_base": '"${TARGET.base}"',
+            "project_source_dir": 'env["BASEPATH"]',
+            "gccpath": 'env["GCC_PATH"]'
+        }
+        flag = '"{}"'.format(flag)
+        vals = ["{}={}".format(t, r) for t, r in subs.items() if "{{{}}}".format(t) in flag]
+        if len(vals):
+            flag = "{}.format({})".format(flag, ", ".join(vals))
+            return flag
+        return None
+
+    env.collect("flag_format", flag_format)
+
+    # SCons tools and toolpaths
+    toolpaths = {
+        "scons/site_tools",
+    }
+    tools = {
+        "build_target",
+        "comstr",
+        "find_files",
+        "gcc_retarget",
+        "qtcreator",
+        "template",
+        "utils",
+        "utils_buildpath",
+    }
+    if env.has_module(":communication:xpcc:generator"):
+        tools.add("xpcc_generator")
+    if len(env["::image.source"]):
+        tools.add("bitmap")
+    if env["::info.git"] != "Disabled" or env["::info.build"]:
+        tools.add("info")
+    if len(env["::unittest.source"]):
+        tools.add("unittestm")
+
+    device = env.query("::device")
+    if device["core"].startswith("cortex-m"):
+        tools.update({"size", "log_cortex", "artifact", "openocd",
+                     "openocd_remote", "bmp", "crashdebug", "dfu"})
+        if device["platform"] in ["sam"]:
+            tools.update({"bossac"})
+    elif device["core"].startswith("avr"):
+        tools.update({"size", "avrdude"})
+
+    env.collect("path.tools", *toolpaths)
+    env.collect("tools", *tools)
+
+    # Copy only these modm SCons build tools
+    env.outbasepath = "modm/scons/"
+    for tool in tools:
+        path = "site_tools/{}.py".format(tool)
+        if exists(localpath(path)):
+            env.copy(path)
+    # Copy support files
+    env.copy("site_tools/qtcreator/")
+
+    # Generate the env.BuildTarget tool
+    linkerscript = env.get(":platform:cortex-m:linkerscript.override")
+    linkerscript = env.relative_outpath(linkerscript) if linkerscript \
+                   else "$BASEPATH/modm/link/linkerscript.ld"
+    env.substitutions = env.query("::device")
+    env.substitutions.update({
+        "upload_with_artifact": env.has_module(":crashcatcher"),
+        "with_compilation_db": env.has_module(":build:compilation_db"),
+        "program_extension": ".exe" if env[":target"].identifier.family == "windows" else ".elf",
+        "linkerscript": linkerscript,
+    })
+    env.outbasepath = "modm/scons/site_tools"
+    env.template("resources/build_target.py.in", "build_target.py")
+
+
+def post_build(env):
+    is_unittest = len(env["::unittest.source"])
+    has_xpcc_generator = env.has_module(":communication:xpcc:generator")
+    has_image_source = len(env["::image.source"])
+    repositories = [p for p in env.buildlog.repositories if isdir(env.real_outpath(p, basepath="."))]
+    repositories.sort(key=lambda name: "0" if name == "modm" else name)
+
+    subs = env.query("::device")
+    cache_dir = env["cache_dir"]
+    if cache_dir.endswith("$cache"):
+        cache_dir = env[":build:build.path"] + "/cache"
+        if "build/" in cache_dir:
+            cache_dir = "{}build/cache".format(cache_dir.split("build/")[0])
+    if subs["core"].startswith("cortex-m"):
+        # get memory information
+        subs["memories"] = env.query("::memories")
+    else:
+        subs["memories"] = []
+    # Add SCons specific data
+    subs.update({
+        "build_path": env.relative_outpath(env[":build:build.path"]),
+        "cache_dir": env.relative_outpath(cache_dir) if len(cache_dir) else "",
+        "artifact_path": env.relative_outpath(env["path.artifact"]),
+        "generated_paths": repositories,
+        "is_unittest": is_unittest,
+
+        "has_image_source": has_image_source,
+        "has_xpcc_generator": has_xpcc_generator,
+    })
+    if has_image_source:
+        subs["image_source"] = env.relative_outpath(env["::image.source"])
+    if is_unittest:
+        subs["unittest_source"] = env.relative_outpath(env["::unittest.source"])
+    if has_xpcc_generator:
+        subs.update({
+            "generator_source": env.relative_outpath(env.get(":communication:xpcc:generator:source", "")),
+            "generator_container": env.get(":communication:xpcc:generator:container", ""),
+            "generator_path": env.relative_outpath(env.get(":communication:xpcc:generator:path", "")),
+            "generator_namespace": env.get(":communication:xpcc:generator:namespace", ""),
+        })
+    if subs["platform"] == "avr":
+        subs.update(env.query("::avrdude_options"))
+    if subs["platform"] == "sam":
+        subs.update({"bossac_offset": env.get(":platform:cortex-m:linkerscript.flash_offset", None),
+                     "bossac_options": " ".join(env.collector_values(":build:bossac.options"))})
+    # Set these substitutions for all templates
+    env.substitutions = subs
+
+    sources = env.query("::source_files")
+    def flags_format(flag):
+        for fmt in env.collector_values("flag_format"):
+            nflag = fmt(flag)
+            if nflag: return nflag;
+        return '"{}"'.format(flag)
+
+    for repo in repositories:
+        files = []
+        repo_filter = lambda scope: scope.repository == repo
+        repo_flags = env.query("::collect_flags")(env, repo_filter)
+
+        for f in sources[repo]:
+            for flag, profiles in repo_flags[f].items():
+                profiles[""].insert(0, "${}".format(flag.upper()))
+            files.append( (f, repo_flags[f]) )
+
+        include_paths = env.collector_values("::path.include", filterfunc=repo_filter)
+        libary_paths = env.collector_values("::path.library", filterfunc=repo_filter)
+        libaries = env.collector_values("::library", filterfunc=repo_filter)
+        packages = env.collector_values("::pkg-config", filterfunc=repo_filter)
+        toolpaths = env.collector_values("path.tools", filterfunc=repo_filter)
+        tools = env.collector_values("tools", filterfunc=repo_filter)
+
+        subs.update({
+            "repo": repo,
+            "flags": repo_flags[None],
+            "sources": files,
+            "libraries": libaries,
+            "library_paths": libary_paths,
+            "include_paths": include_paths,
+            "packages": packages,
+            "toolpaths": toolpaths,
+            "tools": tools,
+            "is_modm": repo == "modm",
+        })
+        # Generate library SConscript
+        env.outbasepath = repo
+        env.template("resources/SConscript.in", "SConscript",
+                     filters={"flags_format": flags_format,
+                              "relocate": lambda p: env.relative_outpath(p, repo)})
+
+    # these are the ONLY files that are allowed to NOT be namespaced with modm!
+    env.outbasepath = "."
+    if env["include_sconstruct"]:
+        env.template("resources/SConstruct.in", "SConstruct")
+
+
+# ============================ Option Descriptions ============================
+descr_include_sconstruct = """# Generate a SConstruct file
+
+!!! warning "This overwrites any top-level `SConstruct` file!"
+"""
+
+descr_cache_dir = """# Path to SConstruct CacheDir
+
+If value is `$cache`, the cache is placed into the top-level `build/` folder.
+You can disable CacheDir by setting an empty string.
+"""
+
+descr_path_artifact = """# Path to Artifact Store
+
+The artifact folder contains ELF files named by their GNU build id hash. This
+allows identification of firmware on the device via serial output and is useful
+for archiving or post-mortem debugging.
+"""

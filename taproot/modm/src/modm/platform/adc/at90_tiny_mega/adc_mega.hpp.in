@@ -1,0 +1,450 @@
+/*
+ * Copyright (c) 2015-2017, Niklas Hauser
+ * Copyright (c) 2016, Sascha Schade
+ * Copyright (c) 2017, Fabian Greif
+ *
+ * This file is part of the modm project.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+// ----------------------------------------------------------------------------
+
+#ifndef MODM_ATMEGA_ADC_HPP
+#define MODM_ATMEGA_ADC_HPP
+
+#include <modm/architecture/interface/adc.hpp>
+#include <modm/platform/gpio/connector.hpp>
+#include <modm/math/algorithm/prescaler.hpp>
+//#include "../device.hpp"
+
+#if defined (__AVR_ATmega64HVE__) || defined(__AVR_ATmega64HVE2__)
+#	error "The ATmega64HVE2 is not supported by this ADC class."
+#endif
+
+%% if vadc
+// sane register definitions
+#define ADC_vect	VADC_vect
+
+#define ADC		VADC
+#define ADCSRA	VADCSR
+
+// sane bit definitions
+#define ADSC	VADSC
+#define ADEN	VADEN
+#define ADIF	VADCCIF
+#define ADIE	VADCCIE
+%% endif
+
+%% set resolution = 10
+
+namespace modm
+{
+
+namespace platform
+{
+
+/**
+ * Generic Analog/Digital-Converter module
+ *
+ * This class aims at providing a common interface to all the different
+ * register layouts of the ADC modules in most ATmegas.
+ * It takes into consideration restrictions and extensions in ADC
+ * functionality and provides the appropriate methods to configure them.
+ *
+ * This class enables you to address and use a broader array of ATmegas
+ * with similar ADC functionality without changing a single line of code.
+ *
+ * For best use of this class, check your device's datasheet for the
+ * supported functionality.
+ *
+ * ADC clock frequency should be between 50 and 200 kHz for maximum
+ * resolution.
+ * If less than the full resolution of {{ resolution }} bits are
+ * needed the frequency can be higher.
+ *
+ * @author	Niklas Hauser
+ * @ingroup	modm_platform_adc
+ */
+class Adc : public modm::Adc
+{
+public:
+	typedef uint8_t Channel;
+	static constexpr uint8_t Resolution = {{ resolution }};
+
+%% if not vadc
+	enum class
+	Reference : uint8_t
+	{
+	%% if adcsrb == 'AREFEN'
+		ExternalRef = 0x20,
+		InternalVcc = 0x60,
+		internalVccNoCapacitor = 0x40,
+		Internal2V56 = 0xe0,
+		Internal2V56NoCapacitor = 0xc0,
+	%% elif adcsrb == 'REFOK'
+		InternalRef = 0,
+		InternalVddNoCapacitor = 0x40,
+		Internal1V5NoCapacitor = 0x80,
+		Internal1V6NoCapacitor = 0xc0,
+	%% else
+		ExternalRef = 0,
+		InternalVcc = 0x40,
+		Internal2V56 = 0xe0,
+		Internal1V1 = 0xc0,
+	%% endif
+	};
+%% endif
+
+private:
+	enum class
+	Prescaler : uint8_t
+	{
+		Div2 = 0x01,
+		Div4 = 0x02,
+		Div8 = 0x03,
+		Div16 = 0x04,
+		Div32 = 0x05,
+		Div64 = 0x06,
+		Div128 = 0x07,
+	};
+
+public:
+	// start inherited documentation
+	template< template<Peripheral _> class... Signals >
+	static void
+	connect()
+	{
+		using Connector = GpioConnector<Peripheral::Adc, Signals...>;
+		Connector::connect();
+	}
+
+	template< class SystemClock, frequency_t frequency=kHz(100), percent_t tolerance=pct(10) >
+	static void
+	initialize()
+	{
+		constexpr auto result = modm::Prescaler::from_power(SystemClock::Adc, frequency, 2, 128);
+		assertBaudrateInTolerance< result.frequency, frequency, tolerance >();
+
+		disable();
+		setPrescaler(Prescaler{result.index});
+		// enable the module
+		ADCSRA |= (1<<ADEN);
+	}
+
+	static inline void
+	disable()
+	{
+		ADCSRA &= ~(1<<ADEN);
+	}
+
+
+	static inline void
+	startConversion()
+	{
+		acknowledgeInterruptFlag();
+		ADCSRA |= (1<<ADSC);
+	}
+
+	static inline bool
+	isConversionFinished()
+	{
+		return getInterruptFlag();
+	}
+
+	static inline uint16_t
+	getValue()
+	{
+		return ADC;
+	}
+
+
+	/**
+	 * Read the value an analog channel
+	 *
+	 * A normal conversion takes 13 ADC clock cycles. With a clock frequency
+	 * of for example 200 kHz a conversion therefore needs 65 microseconds.
+	 * This time increases with a lower frequency.
+	 */
+	static inline uint16_t
+	readChannel(Channel channel)
+	{
+		if (!setChannel(channel)) return 0;
+
+		startConversion();
+		// wait until the conversion is finished
+		while (!isConversionFinished())
+			;
+
+		return getValue();
+	}
+
+
+	static inline bool
+	setChannel(Channel channel)
+	{
+%% if adcsrb == 'AREFEN'
+		if (channel > 0x12) return false;
+%% elif mux5
+		if (channel > 0x3f) return false;
+		ADCSRB = (ADCSRB & ~(1<<MUX5)) | ((channel & 0x20) ? (1<<MUX5) : 0);
+%% elif nomux4 or vadc
+		if (channel > 0x0f) return false;
+%% else
+		if (channel > 0x1f) return false;
+%% endif
+%% if vadc
+		VADMUX = (VADMUX & ~0x0f) | (channel & 0x0f);
+%% else
+		ADMUX = (ADMUX & ~0x1f) | (channel & 0x1f);
+%% endif
+		return true;
+	}
+
+	static inline uint8_t
+	getChannel()
+	{
+%% if vadc
+		return (VADMUX & 0x0f);
+%% elif mux5
+		return (ADMUX & 0x1f) | ((ADCSRB & (1<<MUX5)) ? 0x20 : 0);
+%% else
+		return (ADMUX & 0x1f);
+%% endif
+	}
+
+
+	static inline void
+	enableFreeRunningMode()
+	{
+%% if not vadc
+	%% if adfr
+		ADCSRA |= (1<<ADFR);
+	%% else
+		enableAutoTrigger();
+		setAutoTriggerSource(0);
+	%% endif
+%% endif
+	}
+
+	static inline void
+	diableFreeRunningMode()
+	{
+%% if not vadc
+	%% if adfr
+		ADCSRA |= (1<<ADFR);
+	%% else
+		disableAutoTrigger();
+	%% endif
+%% endif
+	}
+
+
+	static inline void
+	setLeftAdjustResult()
+	{
+%% if not vadc
+		ADMUX |= (1 << ADLAR);
+%% endif
+	}
+
+	static inline void
+	setRightAdjustResult()
+	{
+%% if not vadc
+		ADMUX &= ~(1 << ADLAR);
+%% endif
+	}
+	// stop inherited documentation
+
+%% if not vadc
+	/**
+	 * voltage reference for the ADC
+	 *
+	 * The internal voltage reference options may not be used if an
+	 * external reference voltage is being applied to the AREF pin.
+	 */
+	static inline void
+	setReference(Reference reference)
+	{
+	%% if adcsrb == 'AREFEN'
+		ADCSRB = (ADCSRB & ~(1 << AREFEN)) | (uint8_t(reference) & (1 << AREFEN));
+	%% endif
+		ADMUX = (ADMUX & ~0xc0) | (uint8_t(reference) & 0xc0);
+	}
+%% endif
+
+	/// @return	`true` if the flag is set,
+	///			`false` otherwise
+	static inline bool
+	getInterruptFlag()
+	{
+		return (ADCSRA & (1<<ADIF));
+	}
+
+	/// Clears the interrupt flag
+	static inline void
+	acknowledgeInterruptFlag()
+	{
+		ADCSRA &= ~(1<<ADIF);
+	}
+
+	/// Enables the ADC Conversion Complete Interrupt
+	static inline void
+	enableInterrupt()
+	{
+		ADCSRA |= (1<<ADIE);
+	}
+
+	/// Disables the ADC Conversion Complete Interrupt
+	static inline void
+	disableInterrupt()
+	{
+		ADCSRA &= ~(1<<ADIE);
+	}
+
+%% if not vadc and not adfr
+	/**
+	 * Enable auto triggering of the ADC
+	 *
+	 * The ADC will start a conversion on a positive edge of the
+	 * selected trigger signal.
+	 * @see setAutoTriggerSource
+	 */
+	static inline void
+	enableAutoTrigger()
+	{
+		ADCSRA |= (1<<ADATE);
+	}
+
+	/// Disable auto triggering of the ADC
+	static inline void
+	disableAutoTrigger()
+	{
+		ADCSRA &= ~(1<<ADATE);
+	}
+
+	/**
+	 * Selects which source will trigger an ADC conversion
+	 *
+	 * A conversion will be triggered by the rising edge of the
+	 * selected Interrupt Flag. Note that switching from a trigger
+	 * source that is cleared to a trigger source that is set, will
+	 * generate a positive edge on the trigger signal.
+	 * Set to 0 to enable Free Running Mode.
+	 */
+	static inline void
+	setAutoTriggerSource(uint8_t source)
+	{
+	%% if adcsrb == 'AREFEN'
+		if (source > 0x0d) return;
+	%% else
+		if (source > 0x07) return;
+	%% endif
+	%% if sfior
+		SFIOR = (SFIOR & ~0xe0) | (source << 5);
+	%% else
+		ADCSRB = (ADCSRB & ~0x0f) | source;
+	%% endif
+	}
+%% endif
+
+	// MARK: special operation modes
+%% if adhsm
+	/**
+	 * Enable the ADC High Speed mode
+	 *
+	 * Set this if you wish to convert with an ADC clock frequency
+	 * higher than 200KHz.
+	 * Clear this bit to reduce the power consumption of the ADC when
+	 * the ADC clock frequency is lower than 200KHz.
+	 */
+	static inline void
+	enableHighSpeedMode()
+	{
+		ADCSRB |= (1<<ADHSM);
+	}
+
+	/// Disable the ADC High Speed mode
+	static inline void
+	disableHighSpeedMode()
+	{
+		ADCSRB &= ~(1<<ADHSM);
+	}
+%% endif
+
+%% if adcsrb and adcsrb == 'AREFEN'
+	/// Source a 100uA current to the AREF pin
+	static inline void
+	enableCurrentSource()
+	{
+		ADCSRB |= (1<<ISRCEN);
+	}
+
+	/// Use AREF pin as Analog Reference pin.
+	static inline void
+	disableCurrentSource()
+	{
+		ADCSRB &= ~(1<<ISRCEN);
+	}
+%% endif
+
+%% if adcsrb and adcsrb == 'REFOK'
+	/**
+	 * The analog functions of the ADC are powered from the AVDD domain.
+	 * AVDD is supplied from an internal voltage regulator.
+	 * Enabling the ADC will power-up the AVDD domain if not already
+	 * requested by another functional group of the device.
+	 * This method allows the user to monitor (poll) the status of the
+	 * AVDD domain.
+	 *
+	 * @return `true` indicates that AVDD has been powered-up.
+	 */
+	static inline bool
+	isAvddOk()
+	{
+		return (ADCSRB & (1<<AVDDOK));
+	}
+	/**
+	 * The status of the internal generated reference voltage can be
+	 * monitored through this bit.
+	 * After enabling the ADC and setting the reference voltage, it
+	 * will be available after a start-up delay.
+	 *
+	 * @return `true` which indicates that the internal generated
+	 * reference voltage is approaching final levels.
+	 */
+	static inline bool
+	isReferenceVoltageOk()
+	{
+		return (ADCSRB & (1<<REFOK));
+	}
+	/**
+	 * The user can force a reset of the analog blocks by setting this
+	 * without requesting a different channel. The analog blocks of the
+	 * ADC will be reset to handle possible new voltage ranges. Such a
+	 * reset phase is especially important for the gain amplifier. It
+	 * could be temporarily disabled by a large step of its input common
+	 * voltage leading to erroneous A/D conversion results.
+	 */
+	static inline void
+	setAnalogChannelChange()
+	{
+		ADCSRB |= (1<<ACCH);
+	}
+%% endif
+
+private:
+	static inline void
+	setPrescaler(Prescaler prescaler)
+	{
+		ADCSRA = (ADCSRA & ~0x07) | static_cast<uint8_t>(prescaler);
+	}
+};
+
+}	// namespace platform
+
+}	// namespace modm
+
+#endif	// MODM_ATMEGA_ADC_HPP

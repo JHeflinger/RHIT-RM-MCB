@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2018, Niklas Hauser
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+def init(module):
+    module.name = ":ui:button"
+    module.description = """\
+# Debouncing Buttons
+
+The `modm::ButtonGroup` class is able to debounce eight buttons at the same time.
+The buttons have to be low-active. If this isn't the case invert their signal
+before passing it to the `update()` method.
+
+The `update()` method needs to be called periodically for example
+every 10ms. Preferred in a timer interrupt function.
+
+The detection for long or repeated presses works only correctly for
+one key at a time. This constraint only applies to buttons listed in the
+`mask` variable."""r"""
+
+Mode 1:
+
+```
+                 Timeline ---->
+                      __      _________________      __
+getState()       ____/  \____/                 \____/  \____
+isPressed()      ----X-------X----------------------X-------
+isRepeated()     --------------------X--X--X--X-------------
+isReleased()     -------X----------------------X-------X----
+                             |       |__|__|
+                             |_______| \ /
+                                  \    interval
+                                  timeout
+```
+
+Mode 2:
+
+```
+                      __      _________________      __
+getState()       ____/  \____/                 \____/  \____
+isPressedShort() -------X------------------------------X----
+isPressedLong()  --------------------X----------------------
+isReleased()     -------X----------------------X-------X----
+```
+
+This implementation is based on the C functions written
+by Peter Dannegger (see http://www.mikrocontroller.net/topic/48465).
+"""
+
+def prepare(module, options):
+    module.depends(":architecture:atomic")
+    return True
+
+def build(env):
+    env.outbasepath = "modm/src/modm/ui"
+    env.copy("button.hpp")
+    env.copy("button_impl.hpp")
+    env.copy("button_group.hpp")
+    env.copy("button_group_impl.hpp")

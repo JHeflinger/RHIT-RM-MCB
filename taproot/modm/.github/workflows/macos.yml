@@ -1,0 +1,70 @@
+name: Run tests on MacOS
+
+on: [pull_request]
+
+jobs:
+  macos_testing:
+    runs-on: macos-10.15
+
+    steps:
+      - name: Setup environment - Brew tap
+        run: |
+          brew tap modm-ext/arm
+          brew tap modm-ext/avr
+
+      - name: Setup environment - Brew install
+        run: |
+          export HOMEBREW_NO_INSTALL_CLEANUP=1 # saves time
+          brew update
+          brew install doxygen boost gcc avr-gcc@10 arm-gcc-bin cmake || true
+          brew link --force avr-gcc@10
+          # brew upgrade boost gcc git || true
+
+      - name: Setup environment - Python pip
+        run: |
+          pip3 install --user modm scons
+          echo "/usr/local/bin" >> $GITHUB_PATH
+          echo "/Users/runner/Library/Python/3.9/bin" >> $GITHUB_PATH
+
+      - name: Dump environment
+        run: |
+          echo $PATH
+          env
+          locale -a
+          python --version  || true
+          python3 --version || true
+          python3 -c "import os; print(os.cpu_count())"
+          which scons
+          scons --version
+          which g++
+          g++ --version
+          which arm-none-eabi-g++
+          arm-none-eabi-g++ --version
+          which lbuild
+          lbuild --version
+          which avr-g++
+          avr-g++ --version
+
+      - name: Check out repository
+        uses: actions/checkout@v2
+
+      - name: Git Submodules
+        run: |
+          git submodule update --init --jobs 8
+
+      - name: Hosted Unittests
+        run: |
+          (cd test && make run-hosted-darwin)
+
+      - name: Hosted Examples
+        run: |
+          (cd examples && ../tools/scripts/examples_compile.py linux)
+
+      - name: Compile STM32 Examples
+        run: |
+          (cd examples && ../tools/scripts/examples_compile.py nucleo_f031k6 nucleo_f103rb nucleo_f303re nucleo_f411re nucleo_f746zg)
+          (cd examples && ../tools/scripts/examples_compile.py nucleo_g071rb nucleo_l031k6 nucleo_l152re nucleo_l476rg nucleo_g474re)
+
+      - name: Compile AVR Examples
+        run: |
+          (cd examples && ../tools/scripts/examples_compile.py avr)

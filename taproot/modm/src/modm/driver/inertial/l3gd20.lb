@@ -1,0 +1,35 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2018, Niklas Hauser
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+
+def init(module):
+    module.name = ":driver:l3gd20"
+    module.description = """\
+# L3GD20 3-Axis Gyroscope
+
+The L3GD20 is a low-power three-axis angular rate sensor.
+The L3GD20 has a full scale of ±250/±500/±2000 dps and is capable of
+measuring rates with a user-selectable bandwidth.
+"""
+
+def prepare(module, options):
+    module.depends(
+        ":architecture:register",
+        ":driver:lis3.transport",
+        ":math:utils",
+        ":processing:resumable")
+    return True
+
+def build(env):
+    env.outbasepath = "modm/src/modm/driver/inertial"
+    env.copy("l3gd20.hpp")
+    env.copy("l3gd20_impl.hpp")

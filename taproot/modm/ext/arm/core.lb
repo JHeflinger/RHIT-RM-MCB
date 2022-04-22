@@ -1,0 +1,35 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2016, Fabian Greif
+# Copyright (c) 2018, Niklas Hauser
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+def init(module):
+    module.name = ":cmsis:core"
+    module.description = FileReader("core.md")
+
+def prepare(module, options):
+    return options[":target"].has_driver("core:cortex-m*")
+
+def build(env):
+    core = env[":target"].get_driver("core")["type"]
+    core = core.replace("cortex-m", "").replace("+", "plus").replace("f", "").replace("d", "")
+
+    env.outbasepath = "modm/ext/cmsis/core"
+    env.copy("cmsis/CMSIS/Core/Include/core_cm{}.h".format(core), "core_cm{}.h".format(core))
+    env.copy("cmsis/CMSIS/Core/Include/cmsis_version.h", "cmsis_version.h")
+    env.copy("cmsis/CMSIS/Core/Include/cmsis_compiler.h", "cmsis_compiler.h")
+    env.copy("cmsis/CMSIS/Core/Include/cmsis_gcc.h", "cmsis_gcc.h")
+    if core != "0": # 0+ has MPU support though!
+        env.copy("cmsis/CMSIS/Core/Include/mpu_armv7.h", "mpu_armv7.h")
+    if core == "7":
+        env.copy("cmsis/CMSIS/Core/Include/cachel1_armv7.h", "cachel1_armv7.h")
+
+    env.collect(":build:path.include", "modm/ext/cmsis/core")

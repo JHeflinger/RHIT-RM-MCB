@@ -1,0 +1,69 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2016-2017, Niklas Hauser
+# Copyright (c) 2017, Fabian Greif
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+def init(module):
+    module.name = ":fatfs"
+    module.description = """
+# FatFs: FAT Filesystem
+
+FatFs is a generic FAT/exFAT filesystem module for small embedded systems.
+
+See http://elm-chan.org/fsw/ff/00index_e.html.
+
+
+## Configuration
+
+This module generates a `ffconf.h` config file for modm integration with these
+settings:
+
+- `FF_FS_NORTC = 1`: modm does not provide an accurate RTC timekeeping method,
+                     you must implement that yourself.
+- `ff_memalloc`/`ff_memfree`: Forwarded to `malloc` and `free` as implemented by
+                              the `modm:platform:heap` module
+
+To configure FatFs for your project, create a `<ffconf_local.h>` file, which is
+included at the *beginning* of the config, thus overwriting the default
+settings. Please see the `modm/ext/fatfs/ffconf.h` file for the available
+configuration options and their default values.
+
+Example `<ffconf_local.h>` configuration:
+
+```c
+// Enable directory filtering: f_findfirst(), f_findnext()
+#define FF_USE_FIND 1
+
+// Enable Volume Formatting: f_mkfs()
+#define FF_USE_MKFS 1
+
+// Enable Volume Label: f_setlabel(), f_getlabel()
+#define FF_USE_LABEL 1
+
+// Enable tiny sector buffers
+#define FF_FS_TINY 1
+```
+"""
+
+def prepare(module, options):
+    return True
+
+def build(env):
+    env.collect(":build:path.include", "modm/ext")
+    env.outbasepath = "modm/ext/fatfs"
+
+    env.copy("fatfs/full/source/diskio.h", "diskio.h")
+    env.copy("fatfs/full/source/ff.h", "ff.h")
+    env.copy("fatfs/full/source/ff.c", "ff.c")
+    env.copy("fatfs/full/source/ffunicode.c", "ffunicode.c")
+    env.copy("fatfs/full/LICENSE.txt", "LICENSE.txt")
+
+    env.copy("ffconf.h")

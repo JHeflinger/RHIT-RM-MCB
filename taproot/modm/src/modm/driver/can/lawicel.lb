@@ -1,0 +1,35 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+# Copyright (c) 2018, Niklas Hauser
+#
+# This file is part of the modm project.
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+# -----------------------------------------------------------------------------
+
+
+def init(module):
+    module.name = ":driver:lawicel"
+    module.description = """\
+# Lawicel Format Converter
+
+Converts `modm::can::Message` to and from the Lawicel string format (`char *`).
+
+Lawicel AB (http://www.lawicel.com) offers medium sized CAN to USB and CAN to
+RS232 converters. Their data format is widely used.
+
+This converter only understands messages of type 'r', 't', 'R' and 'T' which
+transmits CAN frames. It does not understand commands to change the baud rate.
+"""
+
+def prepare(module, options):
+    module.depends(":architecture:can")
+    return True
+
+def build(env):
+    env.outbasepath = "modm/src/modm/driver/can"
+    env.copy("can_lawicel_formatter.hpp")
+    env.copy("can_lawicel_formatter.cpp")

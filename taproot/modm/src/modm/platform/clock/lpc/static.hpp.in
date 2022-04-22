@@ -1,0 +1,91 @@
+/*
+ * Copyright (c) 2013-2014, Kevin Läufer
+ * Copyright (c) 2014-2017, Niklas Hauser
+ * Copyright (c) 2016-2017, Fabian Greif
+ *
+ * This file is part of the modm project.
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+// ----------------------------------------------------------------------------
+
+%%	import 'static.macros' as static with context
+
+#ifndef MODM_LPC_STATIC_HPP
+#define MODM_LPC_STATIC_HPP
+
+#include <stdint.h>		// uint32_t
+#include "../device.hpp"
+
+#include "../common_clock.hpp"
+#include "pll_calculator.hpp"
+#include "clock.hpp"
+
+
+namespace modm
+{
+	namespace platform
+	{
+		/*
+		 * Used to setup pll with constants
+		 */
+		template<int InputFrequency, int OutputFrequency, Rcc::PllSource Source>
+		class PllSetup
+		{
+		private:
+			typedef Lpc11PllSettings<InputFrequency, OutputFrequency> p;
+		public:
+			static StartupError
+			enable()
+			{
+				Rcc::enablePll(Source, p::PllM, p::PllP);
+				modm::clock::fcpu     = OutputFrequency;
+				modm::clock::fcpu_kHz = OutputFrequency / 1'000;
+				modm::clock::fcpu_MHz = OutputFrequency / 1'000'000;
+				modm::clock::ns_per_loop = ::round(1'000'000'000.f / OutputFrequency * 4.f);
+				return StartupError::None;
+			}
+		};
+
+%% set internalClock =		{'name': "InternalClock",
+							 'fixedFrequency': "MHz12" }
+%% set externalClock =		{'name': "ExternalClock",
+							 'minFrequency': "MHz1",
+							 'maxFrequency': "MHz25" }
+%% set externalCrystal =	{'name': "ExternalCrystal",
+							 'minFrequency': "MHz1",
+							 'maxFrequency': "MHz25" }
+%% set pll =				{'name': "Pll",
+							 'setup': "PllSetup",
+							 'sources': [internalClock,
+										externalClock, externalCrystal] }
+%% set SystemClock =		{'name': "SystemClock",
+							 'minFrequency': "MHz1",
+							 'maxFrequency': "MHz48",
+							 'sources': [ internalClock, externalClock,
+										  externalCrystal, pll ],
+							 'sinks': ["Can"] }
+%% set clockOut =			{'name': "ClockOutput",
+							 'divisions': range(1,255),
+							 'sources': [externalClock,
+										 externalCrystal, SystemClock] }
+
+	// Static Clocks/Plls/Osciallators
+{{ static.source(internalClock, "modm::platform") }}
+
+{{ static.source(externalClock, "modm::platform") }}
+
+{{ static.source(externalCrystal, "modm::platform") }}
+
+{{ static.pll(pll, "modm::platform") }}
+
+{{ static.sink(SystemClock, "modm::platform")}}
+
+{{ static.output(clockOut, "modm::platform")}}
+
+	}
+}
+
+#endif	//  MODM_LPC_STATIC_HPP

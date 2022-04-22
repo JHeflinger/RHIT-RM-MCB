@@ -1,0 +1,14 @@
+<library>
+  <extends>modm:disco-f051r8</extends>
+  <options>
+    <option name="modm:build:build.path">../../../build/stm32f0_discovery/logger</option>
+    <option name="modm:platform:uart:1:buffer.tx">1024</option>
+  </options>
+  <modules>
+    <module>modm:debug</module>
+    <module>modm:platform:gpio</module>
+    <module>modm:platform:uart:1</module>
+    <module>modm:processing:timer</module>
+    <module>modm:build:scons</module>
+  </modules>
+</library>
