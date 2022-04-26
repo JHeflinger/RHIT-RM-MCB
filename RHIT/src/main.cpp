@@ -9,7 +9,7 @@ static constexpr tap::motor::MotorId MOTOR_ID3 = tap::motor::MOTOR3;
 static constexpr tap::motor::MotorId MOTOR_ID4 = tap::motor::MOTOR4;
 
 static constexpr tap::can::CanBus CAN_BUS = tap::can::CanBus::CAN_BUS1;
-static constexpr int DESIRED_RPM = 9000;
+static constexpr int DESIRED_RPM = 12000;
 
 tap::arch::PeriodicMilliTimer sendMotorTimeout(2);
 tap::algorithms::SmoothPid pidController(20, 0, 0, 0, 8000, 1, 0, 1, 0);
@@ -39,11 +39,18 @@ int main()
 
     float LEFT_STICK_VERT = 0;
     float LEFT_STICK_HORIZ = 0;
-    int MAX_RPM = 6000;
+    float RIGHT_STICK_HORIZ = 0;
+    float RIGHT_STICK_VERT = 0;
+    int MAX_RPM = 0;
+    int CURR_RPM = 0;
 	
     int LEFT_RAIL_RPM = 0;
     int RIGHT_RAIL_RPM = 0;
-    float STICK_DIST = 0;
+    
+    float percent_LR = 0;
+    float percent_RR = 0;
+    
+    int mode = 0; //double stick is mode 2, single stick is mode 1, gimble override is mode 0
 
     while (1)
     {
@@ -51,28 +58,70 @@ int main()
     
 	if(drivers->remote.isConnected()){
 	
+		//set max rpm to left switch value
+		if(drivers->remote.getSwitch(drivers->remote.Switch::LEFT_SWITCH) == drivers->remote.SwitchState::MID){
+			MAX_RPM = (DESIRED_RPM * 6)/10;
+		}else if(drivers->remote.getSwitch(drivers->remote.Switch::LEFT_SWITCH) == drivers->remote.SwitchState::UP){
+			MAX_RPM = (DESIRED_RPM * 8)/10;
+		}else if(drivers->remote.getSwitch(drivers->remote.Switch::LEFT_SWITCH) == drivers->remote.SwitchState::DOWN){
+			MAX_RPM = (DESIRED_RPM * 4)/10;
+		}else{
+			MAX_RPM = (DESIRED_RPM * 2)/10;
+		}
+	
+		//set mode based on right switch
+		if(drivers->remote.getSwitch(drivers->remote.Switch::RIGHT_SWITCH) == drivers->remote.SwitchState::MID){
+			mode = 1;
+		}else if(drivers->remote.getSwitch(drivers->remote.Switch::RIGHT_SWITCH) == drivers->remote.SwitchState::UP){
+			mode = 2;
+		}else if(drivers->remote.getSwitch(drivers->remote.Switch::RIGHT_SWITCH) == drivers->remote.SwitchState::DOWN){
+			mode = 0;
+		}else{
+			mode = 0;
+		}
+	
+		//update stick values
+		RIGHT_STICK_VERT = drivers->remote.getChannel(drivers->remote.Channel::RIGHT_VERTICAL);
+		RIGHT_STICK_HORIZ = drivers->remote.getChannel(drivers->remote.Channel::RIGHT_HORIZONTAL);
     		LEFT_STICK_VERT = drivers->remote.getChannel(drivers->remote.Channel::LEFT_VERTICAL);
     		LEFT_STICK_HORIZ = drivers->remote.getChannel(drivers->remote.Channel::LEFT_HORIZONTAL);
-   		STICK_DIST = (float)(sqrt((LEFT_STICK_VERT * LEFT_STICK_VERT) + (LEFT_STICK_HORIZ * LEFT_STICK_HORIZ)));
+    		
+    		//get curr rpm
+    		CURR_RPM = RIGHT_STICK_VERT * MAX_RPM;
 
-		if(STICK_DIST > 1){
-			STICK_DIST = 1;
-		}
-		//now you have distance, ratio it lol
-		if(LEFT_STICK_HORIZ > 0){
-			LEFT_RAIL_RPM = LEFT_STICK_VERT * MAX_RPM;
-			RIGHT_RAIL_RPM = (1 - LEFT_STICK_HORIZ) * LEFT_RAIL_RPM;
-		}else if(LEFT_STICK_HORIZ < 0){
-			RIGHT_RAIL_RPM = LEFT_STICK_VERT * MAX_RPM;
-			LEFT_RAIL_RPM = (1 + LEFT_STICK_HORIZ) * RIGHT_RAIL_RPM;
+		//distribute to rails based on left stick horiz
+		if(mode == 2){
+			percent_LR = (1.0 + LEFT_STICK_HORIZ)/2.0;
+			percent_RR = (1.0 - LEFT_STICK_HORIZ)/2.0; 
+		}else if(mode == 1){
+			percent_LR = (1.0 + RIGHT_STICK_HORIZ)/2.0;
+			percent_RR = (1.0 - RIGHT_STICK_HORIZ)/2.0; 
 		}else{
-			LEFT_RAIL_RPM = LEFT_STICK_VERT * MAX_RPM;
-			RIGHT_RAIL_RPM = LEFT_RAIL_RPM;
+			percent_LR = 0;
+			percent_RR = 0;
 		}
+		
+		//handle beyblading
+		if(RIGHT_STICK_VERT == 0){
+			if(mode == 2){
+				CURR_RPM = LEFT_STICK_HORIZ * MAX_RPM;
+			}else if(mode == 1){
+				CURR_RPM = RIGHT_STICK_HORIZ * MAX_RPM;
+			}else{
+				CURR_RPM = 0;
+			}
+			percent_LR = 1;
+			percent_RR = -1;
+		}
+		
+		//set assigned percentages to the rails
+		LEFT_RAIL_RPM = percent_LR * CURR_RPM;
+		RIGHT_RAIL_RPM = percent_RR * CURR_RPM;
 
+		//set motors based on data
 		if (sendMotorTimeout.execute()){
 			//motor 1
-	       		pidController.runControllerDerivateError(LEFT_RAIL_RPM - motor1.getShaftRPM(), 1);
+	       	pidController.runControllerDerivateError(LEFT_RAIL_RPM - motor1.getShaftRPM(), 1);
           		motor1.setDesiredOutput(static_cast<int32_t>(pidController.getOutput()));
             		
 			//motor 2
@@ -87,8 +136,10 @@ int main()
 			pidController.runControllerDerivateError((-1 * RIGHT_RAIL_RPM) - motor4.getShaftRPM(), 1);
             		motor4.setDesiredOutput(static_cast<int32_t>(pidController.getOutput()));
             			
+            		//proccess into CAN
 			drivers->djiMotorTxHandler.processCanSendData();
-       		}	
+       	}	
+       	//proccess into CAN
 		drivers->canRxHandler.pollCanData();
 	}
 
