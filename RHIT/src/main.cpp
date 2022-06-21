@@ -86,7 +86,8 @@ void mainControl(int mode){
             }
             
             //turret control
-            
+            percent_GH = (1.0 + RIGHT_STICK_HORIZ)/2.0;
+            percent_GV = (1.0 + RIGHT_STICK_VERT)/2.0;
             break;
         case 2: //double stick
             ESTOP_turret(); //stop firing mechanism
