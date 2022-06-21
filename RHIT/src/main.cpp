@@ -25,7 +25,9 @@ float RIGHT_STICK_VERT = 0; //right stick vertical stick ratio [-1,1]
 float BB_FACTOR = 0.092; //ratio factor to affect gimble beyblading balance
 
 int MAX_RPM = 0; //maximum rpm, changes with mode
-int CURR_RPM = 0; //current rpm
+int CURR_RPM = 0; //current rpm for rails
+int GH_RPM = 0; //current rpm for horizontal gimbal
+int GV_RPM = 0; //current rpm for vertical gimbal
 	
 int LEFT_RAIL_RPM = 0; //left rail specific rpm
 int RIGHT_RAIL_RPM = 0; //right rail specific rpm
@@ -42,6 +44,7 @@ float percent_GH = 0; //ratio value of horizontal gimble rpm
 float percent_GV = 0; //ratio value of vertical gimble rpm
     
 int mode = 0; //double stick is mode 2, single stick is mode 1, gimble override is mode 0
+bool GIMBAL_OVERRIDE = false;
 
 tap::arch::PeriodicMilliTimer sendMotorTimeout(2);
 tap::algorithms::SmoothPid pidController(20, 0, 0, 0, 8000, 1, 0, 1, 0);
@@ -86,8 +89,8 @@ void mainControl(int mode){
             }
             
             //turret control
-            percent_GH = (1.0 + RIGHT_STICK_HORIZ)/2.0;
-            percent_GV = (1.0 + RIGHT_STICK_VERT)/2.0;
+            percent_GH = RIGHT_STICK_HORIZ;
+            percent_GV = RIGHT_STICK_VERT;
             break;
         case 2: //double stick
             ESTOP_turret(); //stop firing mechanism
@@ -153,10 +156,13 @@ int main(){
             //set mode based on right switch
             if(drivers->remote.getSwitch(drivers->remote.Switch::RIGHT_SWITCH) == drivers->remote.SwitchState::MID){
                 mode = 1;
+                GIMBAL_OVERRIDE = false;
             }else if(drivers->remote.getSwitch(drivers->remote.Switch::RIGHT_SWITCH) == drivers->remote.SwitchState::UP){
                 mode = 2;
+                GIMBAL_OVERRIDE = false;
             }else if(drivers->remote.getSwitch(drivers->remote.Switch::RIGHT_SWITCH) == drivers->remote.SwitchState::DOWN){
                 mode = 0;
+                GIMBAL_OVERRIDE = true;
             }else{
                 mode = 0;
             }
@@ -169,6 +175,8 @@ int main(){
                 
             //get curr rpm
             CURR_RPM = RIGHT_STICK_VERT * MAX_RPM;
+            GH_RPM = RIGHT_STICK_HORIZ * GIMBAL_RPM;
+            GV_RPM = RIGHT_STICK_VERT * GIMBAL_RPM;
 
             //main controls based on mode
             mainControl(mode);
@@ -176,6 +184,12 @@ int main(){
             //set assigned percentages to the rails
             LEFT_RAIL_RPM = percent_LR * CURR_RPM;
             RIGHT_RAIL_RPM = percent_RR * CURR_RPM;
+
+	    //set gimbal override rpm
+	    if(GIMBAL_OVERRIDE){
+	    	HORIZ_RPM = percent_GH * GH_RPM;
+	    	VERT_RPM = percent_GV * GV_RPM;
+	    }
 
             //set motors based on data
             if (sendMotorTimeout.execute()){
