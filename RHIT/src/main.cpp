@@ -10,13 +10,13 @@ static constexpr tap::motor::MotorId MOTOR_ID4 = tap::motor::MOTOR4;
 static constexpr tap::motor::MotorId MOTOR_ID5 = tap::motor::MOTOR5;
 static constexpr tap::motor::MotorId MOTOR_ID6 = tap::motor::MOTOR6;
 static constexpr tap::motor::MotorId MOTOR_ID7 = tap::motor::MOTOR7;
-static constexpr tap::motor::MotorId MOTOR_ID1B = tap::motor::MOTOR1;
+static constexpr tap::motor::MotorId MOTOR_ID1B = tap::motor::MOTOR7;
 static constexpr tap::motor::MotorId MOTOR_ID2B = tap::motor::MOTOR2;
 
 static constexpr tap::can::CanBus CAN_BUS = tap::can::CanBus::CAN_BUS1;
 static constexpr tap::can::CanBus CAN_BUS2 = tap::can::CanBus::CAN_BUS2;
 static constexpr int DESIRED_RPM = 12000;
-static constexpr int GIMBAL_RPM = 900;
+static constexpr int GIMBAL_RPM = 12000;
 
 float LEFT_STICK_VERT = 0; //left stick vertical stick ratio [-1,1]
 float LEFT_STICK_HORIZ = 0; //left stick horizontal stick ratio [-1,1]
@@ -34,14 +34,10 @@ int RIGHT_RAIL_RPM = 0; //right rail specific rpm
     
 int LOAD_RPM = 0; //load motor rpm
 int FEED_RPM = 0; //feeding motor rpm
-int HORIZ_RPM = 0; //horizontal gimbal rpm
-int VERT_RPM = 0; //vertical gimbal rpm
 int TURRET_RPM = 0; //turret rpm
 
 float percent_LR = 0; //ratio value of left rail rpm
 float percent_RR = 0; //ratio value of right rail rpm
-float percent_GH = 0; //ratio value of horizontal gimble rpm
-float percent_GV = 0; //ratio value of vertical gimble rpm
     
 int mode = 0; //double stick is mode 2, single stick is mode 1, gimble override is mode 0
 bool GIMBAL_OVERRIDE = false;
@@ -59,8 +55,8 @@ tap::motor::DjiMotor vertGimbal(::DoNotUse_getDrivers(), MOTOR_ID1B, CAN_BUS2, f
 tap::motor::DjiMotor turretMotor(::DoNotUse_getDrivers(), MOTOR_ID2B, CAN_BUS2, false, "cool motor 2b"); //motor to fire the turret
 
 void ESTOP_gimbal(){
-    HORIZ_RPM = 0; //horizontal gimbal rpm
-    VERT_RPM = 0; //vertical gimbal rpm
+    GH_RPM = 0; //horizontal gimbal rpm
+    GV_RPM = 0; //vertical gimbal rpm
 }
 
 void ESTOP_turret(){
@@ -82,15 +78,11 @@ void mainControl(int mode){
             //turret firing
             if(LEFT_STICK_VERT != 0){
                 LOAD_RPM = MAX_RPM * LEFT_STICK_VERT;
-                HORIZ_RPM = -6000;
+                FEED_RPM = -1 * LEFT_STICK_HORIZ * 8000;
             }else{
                 LOAD_RPM = 0;
-                HORIZ_RPM = 0;
+                FEED_RPM = 0;
             }
-            
-            //turret control
-            percent_GH = RIGHT_STICK_HORIZ;
-            percent_GV = RIGHT_STICK_VERT;
             break;
         case 2: //double stick
             ESTOP_turret(); //stop firing mechanism
@@ -102,7 +94,7 @@ void mainControl(int mode){
             //beyblading
             if(RIGHT_STICK_VERT == 0){
                 CURR_RPM = LEFT_STICK_HORIZ * MAX_RPM;
-                HORIZ_RPM = LEFT_STICK_HORIZ * MAX_RPM * BB_FACTOR;
+                GH_RPM = LEFT_STICK_HORIZ * MAX_RPM * BB_FACTOR;
             }
             break;
         case 1: //single stick
@@ -115,7 +107,7 @@ void mainControl(int mode){
             //beyblading
             if(RIGHT_STICK_VERT == 0){
                 CURR_RPM = RIGHT_STICK_HORIZ * MAX_RPM;
-                HORIZ_RPM = RIGHT_STICK_HORIZ * MAX_RPM * BB_FACTOR;
+                GH_RPM = RIGHT_STICK_HORIZ * MAX_RPM * BB_FACTOR;
             }
             break;
     }
@@ -135,6 +127,9 @@ int main(){
     motor4.initialize();
     loadMotor.initialize();
     feedMotor.initialize();
+    horizGimbal.initialize();
+    vertGimbal.initialize();
+    turretMotor.initialize();
 
     //update loop
     while (1){
@@ -174,9 +169,8 @@ int main(){
             LEFT_STICK_HORIZ = drivers->remote.getChannel(drivers->remote.Channel::LEFT_HORIZONTAL);
                 
             //get curr rpm
-            CURR_RPM = RIGHT_STICK_VERT * MAX_RPM;
-            GH_RPM = RIGHT_STICK_HORIZ * GIMBAL_RPM;
-            GV_RPM = RIGHT_STICK_VERT * GIMBAL_RPM;
+            CURR_RPM = RIGHT_STICK_HORIZ * MAX_RPM;
+            
 
             //main controls based on mode
             mainControl(mode);
@@ -187,8 +181,8 @@ int main(){
 
 	    //set gimbal override rpm
 	    if(GIMBAL_OVERRIDE){
-	    	HORIZ_RPM = percent_GH * GH_RPM;
-	    	VERT_RPM = percent_GV * GV_RPM;
+	    	GH_RPM = RIGHT_STICK_HORIZ * GIMBAL_RPM * -1;
+            	GV_RPM = RIGHT_STICK_VERT * GIMBAL_RPM * -1;
 	    }
 
             //set motors based on data
@@ -218,11 +212,11 @@ int main(){
                 feedMotor.setDesiredOutput(static_cast<int32_t>(pidController.getOutput()));
 
                 //horizMotor
-                pidController.runControllerDerivateError(HORIZ_RPM - horizGimbal.getShaftRPM(), 1);
+                pidController.runControllerDerivateError(GH_RPM - horizGimbal.getShaftRPM(), 1);
                 horizGimbal.setDesiredOutput(static_cast<int32_t>(pidController.getOutput()));
 
                 //vertMotor
-                pidController.runControllerDerivateError(VERT_RPM - vertGimbal.getShaftRPM(), 1);
+                pidController.runControllerDerivateError(GV_RPM - vertGimbal.getShaftRPM(), 1);
                 vertGimbal.setDesiredOutput(static_cast<int32_t>(pidController.getOutput()));
 
                 //turretMotor
